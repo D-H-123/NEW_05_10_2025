@@ -1,0 +1,10 @@
+build/
+.idea/
+.vscode/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool/
+**/google-services.json
+**/GoogleService-Info.plist
+**/fastlane/credentials.properties

@@ -1,0 +1,1 @@
+Camera feature placeholder. Implement camera service & permission handling here.

@@ -1,0 +1,11 @@
+{
+  "app_name": "SmartReceipt",
+  "welcome": "Willkommen bei SmartReceipt",
+  "sign_in": "Anmelden",
+  "sign_up": "Registrieren",
+  "guest_skip": "Überspringen (Gast)",
+  "continue": "Weiter",
+  "or": "oder",
+  "email": "E-Mail",
+  "password": "Passwort"
+}

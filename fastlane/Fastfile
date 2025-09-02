@@ -1,0 +1,17 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Push a new beta build to TestFlight"
+  lane :beta do
+    # TODO: configure
+    puts "This is a placeholder lane for iOS TestFlight builds."
+  end
+end
+
+platform :android do
+  desc "Push a new beta build to Google Play internal"
+  lane :beta do
+    # TODO: configure
+    puts "This is a placeholder lane for Android Play builds."
+  end
+end

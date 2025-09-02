@@ -1,0 +1,3 @@
+# TODO: replace with your app identifiers
+app_identifier("com.example.smart_receipt")
+apple_id("your@appleid.com")

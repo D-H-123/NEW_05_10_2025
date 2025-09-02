@@ -1,0 +1,11 @@
+{
+  "app_name": "SmartReceipt",
+  "welcome": "Welkom bij SmartReceipt",
+  "sign_in": "Inloggen",
+  "sign_up": "Aanmelden",
+  "guest_skip": "Overslaan (Gast)",
+  "continue": "Doorgaan",
+  "or": "of",
+  "email": "E-mail",
+  "password": "Wachtwoord"
+}

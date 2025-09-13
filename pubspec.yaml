@@ -22,10 +22,13 @@ dependencies:
   firebase_auth: ^6.0.0
   firebase_core: ^4.0.0
   encrypt: ^5.0.1
-  camera: ^0.10.5+9        # Camera preview & capture
+  camera: ^0.10.5+9  
+  google_mlkit_document_scanner: ^0.2.0      # Camera preview & capture
   google_mlkit_text_recognition: ^0.11.0  # ML Kit OCR
   path_provider: ^2.1.2    # To save images temporarily
   image_picker: ^1.1.2     # Pick images from gallery/camera
+  image: ^4.1.7            # Image processing for edge detection and preprocessing
+
  
   flutter_local_notifications: ^19.4.0
   fl_chart: ^1.0.0
@@ -37,6 +40,7 @@ dependencies:
   device_info_plus: ^9.1.2
   share_plus: ^7.2.1
   url_launcher: ^6.2.4
+  
   
 
 #dev_dependencies:

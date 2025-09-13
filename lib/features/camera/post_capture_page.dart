@@ -89,16 +89,12 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       _detectedCurrency = widget.detectedCurrency;
       _selectedDate = DateTime.now();
       
-      // FALLBACK: If no data was detected, run OCR analysis again
+      // OCR data should already be available from camera page
+      // No need for fallback OCR - data was extracted when user clicked "Extract Text"
       if ((widget.detectedTitle == null || widget.detectedTitle!.isEmpty) && 
           (widget.detectedTotal == null)) {
-        print('🔍 MAGIC POST-CAPTURE: No data detected, running fallback OCR...');
-        // Run fallback OCR after a short delay to ensure UI is ready
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            _runFallbackOcr();
-          }
-        });
+        print('🔍 MAGIC POST-CAPTURE: No OCR data received from camera page');
+        print('🔍 MAGIC POST-CAPTURE: This should not happen - OCR was already performed');
       }
     }
     
@@ -112,56 +108,6 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     }
   }
 
-  /// Fallback OCR analysis when no data is detected from camera
-  Future<void> _runFallbackOcr() async {
-    print('🔍 MAGIC POST-CAPTURE: Running fallback OCR analysis...');
-    
-    try {
-      setState(() {
-        _isOcrProcessing = true;
-      });
-
-      final ocrService = MlKitOcrService();
-      final file = File(widget.imagePath);
-      final result = await ocrService.processImage(file);
-      
-      if (result != null) {
-        print('🔍 MAGIC POST-CAPTURE: Fallback OCR successful!');
-        print('  Vendor: "${result.vendor}"');
-        print('  Total: ${result.total}');
-        print('  Currency: "${result.currency}"');
-        
-        // Update the fields with detected data
-        if (result.vendor != null && result.vendor!.isNotEmpty) {
-          _titleController.text = result.vendor!;
-        }
-        if (result.total != null) {
-          _totalController.text = result.total!.toStringAsFixed(2);
-        }
-        if (result.currency != null) {
-          _detectedCurrency = result.currency;
-        }
-        
-        // Force UI update
-        if (mounted) {
-          setState(() {});
-        }
-        
-        print('🔍 MAGIC POST-CAPTURE: Fields updated after fallback OCR');
-        print('  Title controller: "${_titleController.text}"');
-        print('  Total controller: "${_totalController.text}"');
-        print('  Currency: "$_detectedCurrency"');
-      } else {
-        print('🔍 MAGIC POST-CAPTURE: Fallback OCR returned null result');
-      }
-    } catch (e) {
-      print('🔍 MAGIC POST-CAPTURE: Fallback OCR failed: $e');
-    } finally {
-      setState(() {
-        _isOcrProcessing = false;
-      });
-    }
-  }
 
   @override
   void dispose() {
@@ -187,21 +133,29 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     try {
       final ocrService = MlKitOcrService();
       final file = File(widget.imagePath);
-      final result = await ocrService.processImage(file);
       
-      if (result != null) {
-        // Parse the OCR result to extract items
-        final items = _parseOcrToItems(result.rawText);
-        setState(() {
-          _groceryItems = items;
-          _showOcrResults = true;
-          _detectedCurrency = result.currency;
-        });
+      // Check if this is a preprocessed image (from camera pipeline)
+      // If so, use processPreprocessedImage to avoid double preprocessing
+      final result = file.path.contains('preprocessed') 
+          ? await ocrService.processPreprocessedImage(file)
+          : await ocrService.processImage(file);
+      
+      // Parse the OCR result to extract items
+      final items = _parseOcrToItems(result.rawText);
+      setState(() {
+        _groceryItems = items;
+        _showOcrResults = true;
+        _detectedCurrency = result.currency;
+      });
         
-        // Update total if detected
-        if (result.total != null) {
-          _totalController.text = result.total!.toStringAsFixed(2);
-        }
+      // Update total if detected
+      if (result.total != null) {
+        _totalController.text = result.total!.toStringAsFixed(2);
+      }
+      
+      // Update vendor if detected
+      if (result.vendor != null && result.vendor!.isNotEmpty) {
+        _titleController.text = result.vendor!;
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

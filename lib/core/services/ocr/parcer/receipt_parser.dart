@@ -35,9 +35,19 @@ class ReceiptParser {
   ParsedReceipt parse(String rawText, List<OcrLine> linesPositional) {
     print('🔍 MAGIC PARSER: Starting to parse receipt');
     print('🔍 MAGIC PARSER: Raw text length: ${rawText.length}');
+    print('🔍 MAGIC PARSER: Positional lines count: ${linesPositional.length}');
     
     final normalized = _preprocess(rawText);
-    final lines = normalized.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    
+    // Use positional lines if available, otherwise fallback to text splitting
+    List<String> lines;
+    if (linesPositional.isNotEmpty) {
+      lines = linesPositional.map((line) => line.text.trim()).where((s) => s.isNotEmpty).toList();
+      print('🔍 MAGIC PARSER: Using positional lines: ${lines.length}');
+    } else {
+      lines = normalized.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      print('🔍 MAGIC PARSER: Using text-split lines: ${lines.length}');
+    }
     
     print('🔍 MAGIC PARSER: After preprocessing, found ${lines.length} lines');
     if (lines.isNotEmpty) {
@@ -46,6 +56,30 @@ class ReceiptParser {
         print('  Line $i: "${lines[i]}"');
       }
     }
+    
+    // DEBUG: Print ALL lines to find where $75.00 is coming from
+    print('🔍 DEBUG: ALL LINES FOR TOTAL DETECTION:');
+    print('=' * 80);
+    for (int i = 0; i < lines.length; i++) {
+      print('Line $i: "${lines[i]}"');
+    }
+    print('=' * 80);
+    
+    // DEBUG: Look specifically for lines containing "TOTAL" or amounts
+    print('🔍 DEBUG: LINES CONTAINING TOTAL OR AMOUNTS:');
+    print('=' * 80);
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final upperLine = line.toUpperCase();
+      if (upperLine.contains('TOTAL') || 
+          upperLine.contains('AMOUNT') || 
+          RegExp(r'\d+\.\d{2}').hasMatch(line) ||
+          RegExp(r'\$\d+').hasMatch(line) ||
+          RegExp(r'CHF\s*\d+').hasMatch(upperLine)) {
+        print('Line $i: "${line}"');
+      }
+    }
+    print('=' * 80);
 
     // Vendor detection: top N lines heuristics (ignore phone/address)
     print('🔍 MAGIC PARSER: Starting vendor detection...');
@@ -61,13 +95,13 @@ class ReceiptParser {
     print('🔍 MAGIC PARSER: Starting currency detection...');
     String? currency = _rx.detectCurrency(normalized);
     if (currency == null) {
-      currency = _rx.findCurrencySymbol(normalized);
+      currency = _rx.detectCurrency(normalized);
     }
     print('🔍 MAGIC PARSER: Detected currency: "$currency"');
 
-    // Totals detection: first look for explicit keywords; else fallback to max monetary near the end
+    // Totals detection: use enhanced keyword-based detection with fallback
     print('🔍 MAGIC PARSER: Starting total detection...');
-    final totalResult = _rx.findTotalByKeywords(lines) ?? _rx.findFallbackTotal(lines);
+    final totalResult = _rx.findTotalByKeywords(lines);
     final total = totalResult?.amount;
     final currencyFromTotal = totalResult?.currency ?? currency;
     print('🔍 MAGIC PARSER: Detected total: $total');
@@ -82,7 +116,7 @@ class ReceiptParser {
 
     // Line items
     print('🔍 MAGIC PARSER: Starting line items extraction...');
-    final items = _heuristics.extractLineItems(lines);
+    final items = _heuristics.extractLineItems(lines, linesPositional);
     print('🔍 MAGIC PARSER: Extracted ${items.length} line items');
 
     // Category inference: by merchant name first, then fallback by keywords in text
@@ -128,3 +162,5 @@ class ReceiptParser {
     return s;
   }
 }
+
+

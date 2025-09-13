@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.smart_receipt"
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion.toInt()
         versionCode = flutter.versionCode.toInt()
         versionName = flutter.versionName

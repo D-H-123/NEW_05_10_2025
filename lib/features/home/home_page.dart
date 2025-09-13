@@ -270,14 +270,14 @@ class _HomePageState extends ConsumerState<HomePage> {
                    color: Colors.white,
                    size: 24,
                  ),
-               ),
-               const SizedBox(width: 12),
+              ),
+              const SizedBox(width: 12),
                Column(
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
-                   const Text(
+              const Text(
                      'Smart Receipt',
-                     style: TextStyle(
+                style: TextStyle(
                        fontSize: 20,
                        fontWeight: FontWeight.bold,
                        color: Colors.black87,
@@ -318,10 +318,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                                  color: _getCurrencyColor(_selectedCurrency),
                                  fontSize: 10,
                                  fontWeight: FontWeight.w600,
-                               ),
-                             ),
-                           ],
-                         ),
+                ),
+              ),
+            ],
+          ),
                        ),
                      ],
                    ),
@@ -333,7 +333,7 @@ class _HomePageState extends ConsumerState<HomePage> {
              children: [
                
                // Notifications
-               Container(
+          Container(
                  padding: const EdgeInsets.all(8),
                  decoration: BoxDecoration(
                    color: Colors.grey.withOpacity(0.1),
@@ -346,7 +346,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                  ),
                ),
              ],
-           ),
+          ),
         ],
       ),
     );
@@ -399,8 +399,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
+      ),
+      child: const Text(
                     'Keep it up! 🎉',
                     style: TextStyle(
                       color: Colors.white,
@@ -458,9 +458,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                    color: Colors.black87,
                  ),
                ),
-              Container(
+          Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
+            decoration: BoxDecoration(
                   color: growthPercentage >= 0 ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -519,8 +519,8 @@ class _HomePageState extends ConsumerState<HomePage> {
              style: TextStyle(
                fontSize: 12,
                color: Colors.grey[600],
-             ),
-           ),
+            ),
+          ),
         ],
       ),
     );
@@ -564,11 +564,11 @@ class _HomePageState extends ConsumerState<HomePage> {
               onTap: () {
                 context.go('/bills');
               },
-              child: _buildActionCard(
-                'Storage',
-                '245 receipts',
-                Icons.folder_rounded,
-                [const Color(0xFF6366f1), const Color(0xFF4f46e5)],
+            child: _buildActionCard(
+              'Storage',
+              '245 receipts',
+              Icons.folder_rounded,
+              [const Color(0xFF6366f1), const Color(0xFF4f46e5)],
               ),
             ),
           ),
@@ -633,90 +633,89 @@ class _HomePageState extends ConsumerState<HomePage> {
           AnimatedRotation(
             turns: _isMenuOpen ? 0.125 : 0.0, // 45 degree rotation when open
             duration: const Duration(milliseconds: 200),
-            child: GestureDetector(
-              onTap: () {
+        child: GestureDetector(
+          onTap: () {
                 print('🔍 Plus button tapped. Menu state before: $_isMenuOpen');
                 _toggleMenu();
                 print('🔍 Menu state after: $_isMenuOpen');
-              },
-              child: Container(
+          },
+                child: Container(
                 width: 60,
                 height: 60,
-                decoration: BoxDecoration(
+                  decoration: BoxDecoration(
                   color: const Color(0xFF4facfe),
-                  shape: BoxShape.circle,
+                    shape: BoxShape.circle,
                   border: Border.all(
                     color: Colors.white,
                     width: 3,
                   ),
-                  boxShadow: [
-                    BoxShadow(
+                    boxShadow: [
+                      BoxShadow(
                       color: const Color(0xFF4facfe).withOpacity(0.4),
-                      blurRadius: 20,
+                        blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
                     BoxShadow(
                       color: Colors.black.withOpacity(0.1),
                       blurRadius: 10,
                       offset: const Offset(0, 5),
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
                 child: Icon(
                   _isMenuOpen ? Icons.close : Icons.add,
-                  color: Colors.white,
+                    color: Colors.white,
                   size: 32,
                 ),
               ),
             ),
           ),
           // Menu items - positioned in a circle when open
-          if (_isMenuOpen) ...[
-            
-                       // Manual Expense - Top (0°)
-           Positioned(
-             top: 10,
-             child: _buildMenuItem(
-               'Manual\nExpense',
-               Icons.account_balance_wallet,
-               Colors.green,
-               () async {
-                 print('🔍 MAGIC HOME: Manual Expense callback executed!');
-                 await _showExpenseModal('Manual Expense');
-               },
-               size: 60,
-             ),
-           ),
-           // Subscription - Top Right (45°)
-           Positioned(
-             top: 25,
-             right: 25,
-             child: _buildMenuItem(
-               'Subscription',
-               Icons.calendar_today,
-               Colors.blue,
-               () async {
-                 print('🔍 MAGIC HOME: Subscription callback executed!');
-                 await _showExpenseModal('Subscription');
-               },
-               size: 60,
-             ),
-           ),
-           // SEPA - Right (90°)
-           Positioned(
-             right: 10,
-             child: _buildMenuItem(
-               'SEPA',
-               Icons.account_balance,
-               Colors.orange,
-               () async {
-                 print('🔍 MAGIC HOME: SEPA callback executed!');
-                 await _showExpenseModal('SEPA');
-               },
-               size: 60,
-             ),
-           ),
-          ],
+          ...(_isMenuOpen ? [
+            // Manual Expense - Top (0°)
+            Positioned(
+              top: 10,
+              child: _buildMenuItem(
+                'Manual\nExpense',
+                Icons.account_balance_wallet,
+                Colors.green,
+                () async {
+                  print('🔍 MAGIC HOME: Manual Expense callback executed!');
+                  await _showExpenseModal('Manual Expense');
+                },
+                size: 60,
+              ),
+            ),
+            // Subscription - Top Right (45°)
+            Positioned(
+              top: 25,
+              right: 25,
+              child: _buildMenuItem(
+                'Subscription',
+                Icons.calendar_today,
+                Colors.blue,
+                () async {
+                  print('🔍 MAGIC HOME: Subscription callback executed!');
+                  await _showExpenseModal('Subscription');
+                },
+                size: 60,
+              ),
+            ),
+            // SEPA - Right (90°)
+            Positioned(
+              right: 10,
+              child: _buildMenuItem(
+                'SEPA',
+                Icons.account_balance,
+                Colors.orange,
+                () async {
+                  print('🔍 MAGIC HOME: SEPA callback executed!');
+                  await _showExpenseModal('SEPA');
+                },
+                size: 60,
+              ),
+            ),
+          ] : <Widget>[]),
         ],
       ),
     );
@@ -750,7 +749,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     child: Container(
       width: size,        // Use the size parameter
       height: size,       // Use the size parameter
-      decoration: BoxDecoration(
+         decoration: BoxDecoration(
         color: Colors.white,
         shape: BoxShape.circle,
         border: Border.all(color: color, width: 3),
@@ -786,9 +785,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     ),
   );
 }
-     @override
-      Widget build(BuildContext context) {
-        final auth = ref.watch(authControllerProvider);
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
         final screenWidth = MediaQuery.of(context).size.width;
         final screenHeight = MediaQuery.of(context).size.height;
         final bottomPadding = MediaQuery.of(context).padding.bottom;
@@ -802,7 +801,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         final leftPosition = -70 * widthScale;
         final bottomPosition = (kBottomNavigationBarHeight + bottomPadding - 140) * heightScale;
 
-        return Scaffold(
+    return Scaffold(
           backgroundColor: Colors.white,
           body: Stack(
             children: [
@@ -811,18 +810,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                   _buildCustomAppBar(),
                   Expanded(
                     child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      child: Column(
-                        children: [
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  children: [
                           const SizedBox(height: 20),
-                          _buildWelcomeCard(),
-                          _buildSpendingAnalytics(widget.growthPercentage),
-                          _buildQuickActions(widget.achievementsCount),
+                    _buildWelcomeCard(),
+                    _buildSpendingAnalytics(widget.growthPercentage),
+                    _buildQuickActions(widget.achievementsCount),
                           const SizedBox(height: 20),
                           const SizedBox(height: 120), // Space for floating button
-                        ],
-                      ),
-                    ),
+                  ],
+                ),
+              ),
                   ),
                 ],
               ),
@@ -843,9 +842,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                   color: Colors.grey.withOpacity(0.2),
                   blurRadius: 10,
                   offset: const Offset(0, -5),
-                ),
-              ],
-            ),
+              ),
+            ],
+          ),
             child: BottomNavigationBar(
               type: BottomNavigationBarType.fixed,
               backgroundColor: const Color(0xFF16213e),
@@ -897,10 +896,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                   label: 'Profile',
                 ),
               ],
-            ),
-          ),
-        );
-        }
+        ),
+      ),
+    );
+  }
 //   @override
 //   Widget build(BuildContext context) {
 //     final auth = ref.watch(authControllerProvider);

@@ -67,6 +67,7 @@ GoRoute(path: '/post-capture', builder: (context, state) {
       detectedTitle: args['detectedTitle'],
       detectedTotal: args['detectedTotal'],
       detectedCurrency: args['detectedCurrency'],
+      detectedDate: args['detectedDate'],
       isEditing: args['isEditing'] ?? false,
       existingBill: args['existingBill'],
     );

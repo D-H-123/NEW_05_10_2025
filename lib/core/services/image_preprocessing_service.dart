@@ -157,12 +157,12 @@ class ImagePreprocessingService {
       try {
         // Use lower quality to reduce memory usage
         final optimizedBytes = img.encodeJpg(image, quality: 85);
-        final enhancedFile = File(enhancedPath);
+      final enhancedFile = File(enhancedPath);
         await enhancedFile.writeAsBytes(optimizedBytes);
-        
+      
         print('✅ SAFE LEGACY OCR: 5-phase preprocessing completed: $enhancedPath');
-        return enhancedFile;
-      } catch (e) {
+      return enhancedFile;
+    } catch (e) {
         print('❌ SAFE LEGACY OCR: Failed to save enhanced image: $e');
         // Try with even lower quality
         final optimizedBytes = img.encodeJpg(image, quality: 70);
@@ -1004,7 +1004,7 @@ class ImagePreprocessingService {
         final above = img.getLuminance(image.getPixel(x, y - 1));
         final below = img.getLuminance(image.getPixel(x, y + 1));
         return ((center * 2 + above + below) / 4).round().clamp(0, 255).toInt();
-      } else {
+            } else {
         final left = img.getLuminance(image.getPixel(x - 1, y));
         final right = img.getLuminance(image.getPixel(x + 1, y));
         return ((center * 2 + left + right) / 4).round().clamp(0, 255).toInt();
@@ -1130,7 +1130,7 @@ class ImagePreprocessingService {
     
     return result;
   }
-  
+
   void _applyCLAHEToTile(img.Image source, img.Image result, 
                         int startX, int startY, int endX, int endY, double clipLimit) {
     final histogram = List<int>.filled(256, 0);
@@ -1257,7 +1257,7 @@ class ImagePreprocessingService {
     final width = image.width;
     final height = image.height;
     final result = img.Image(width: width, height: height);
-    
+
     // Use smaller kernel and simplified calculations for speed
     const int kernelSize = 3; // Smaller kernel (3x3 instead of 5x5)
     const double sigmaColor = 50.0; // Increased for faster convergence
@@ -1298,10 +1298,10 @@ class ImagePreprocessingService {
         result.setPixel(x, y, img.ColorRgb8(filtered, filtered, filtered));
       }
     }
-    
+
     // Copy border pixels
     for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
+    for (int x = 0; x < width; x++) {
         if (x < kernelSize ~/ 2 || x >= width - kernelSize ~/ 2 || 
             y < kernelSize ~/ 2 || y >= height - kernelSize ~/ 2) {
           final pixel = img.getLuminance(image.getPixel(x, y)).round();
@@ -1309,10 +1309,10 @@ class ImagePreprocessingService {
         }
       }
     }
-    
+
     return result;
   }
-  
+
   img.Image _applyBilateralFilter(img.Image image) {
     final width = image.width;
     final height = image.height;
@@ -1435,7 +1435,7 @@ class ImagePreprocessingService {
         double enhanced;
         if (difference.abs() > threshold) {
           enhanced = original + amount * difference;
-        } else {
+          } else {
           enhanced = original.toDouble();
         }
         

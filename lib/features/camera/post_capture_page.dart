@@ -13,6 +13,7 @@ class PostCapturePage extends ConsumerStatefulWidget {
   final String? detectedTitle;
   final double? detectedTotal;
   final String? detectedCurrency;
+  final DateTime? detectedDate;
   final bool isEditing;
   final Bill? existingBill;
 
@@ -22,6 +23,7 @@ class PostCapturePage extends ConsumerStatefulWidget {
     this.detectedTitle,
     this.detectedTotal,
     this.detectedCurrency,
+    this.detectedDate,
     this.isEditing = false,
     this.existingBill,
   });
@@ -45,6 +47,14 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
   bool _showOcrResults = false;
   bool _isSaving = false;
   String? _detectedCurrency;
+  String? _selectedCurrency;
+  
+  // Common currencies for manual selection
+  final List<String> _commonCurrencies = [
+    'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'SEK', 'NOK',
+    'DKK', 'PLN', 'CZK', 'HUF', 'RUB', 'BRL', 'MXN', 'INR', 'KRW', 'SGD',
+    'HKD', 'NZD', 'ZAR', 'TRY', 'THB', 'MYR', 'PHP', 'IDR', 'VND', 'TWD'
+  ];
 
   @override
   void initState() {
@@ -64,6 +74,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       _titleController.text = bill.vendor ?? '';
       _totalController.text = bill.total?.toStringAsFixed(2) ?? '';
       _detectedCurrency = bill.currency;
+      _selectedCurrency = bill.currency; // Set selected currency for existing bills
       _selectedDate = bill.date ?? DateTime.now();
       _tagController.text = bill.tags?.join(', ') ?? '';
       _locationController.text = bill.location ?? '';
@@ -83,11 +94,32 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       print('🔍 MAGIC POST-CAPTURE: Detected title: "${widget.detectedTitle}"');
       print('🔍 MAGIC POST-CAPTURE: Detected total: ${widget.detectedTotal}');
       print('🔍 MAGIC POST-CAPTURE: Detected currency: "${widget.detectedCurrency}"');
+      print('🔍 MAGIC POST-CAPTURE: Detected date: ${widget.detectedDate}');
       
       _titleController.text = widget.detectedTitle ?? '';
       _totalController.text = widget.detectedTotal?.toStringAsFixed(2) ?? '';
       _detectedCurrency = widget.detectedCurrency;
-      _selectedDate = DateTime.now();
+      _selectedCurrency = widget.detectedCurrency; // Only set if currency was detected
+      _selectedDate = widget.detectedDate ?? DateTime.now();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      
+      
+      print('🔍 MAGIC POST-CAPTURE: Final selected date: $_selectedDate');
+      print('🔍 MAGIC POST-CAPTURE: Using detected date: ${widget.detectedDate != null}');
       
       // OCR data should already be available from camera page
       // No need for fallback OCR - data was extracted when user clicked "Extract Text"
@@ -146,6 +178,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
         _groceryItems = items;
         _showOcrResults = true;
         _detectedCurrency = result.currency;
+        _selectedCurrency = result.currency; // Only set if currency was detected
       });
         
       // Update total if detected
@@ -240,11 +273,14 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
   }
 
   Future<void> _selectDate() async {
+    print('🔍 DATE PICKER: Current selected date: $_selectedDate');
+    print('🔍 DATE PICKER: Detected date from widget: ${widget.detectedDate}');
+    
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      firstDate: DateTime(1900), // Allow older dates for receipts
+      lastDate: DateTime.now().add(const Duration(days: 365)), // Allow some future dates
     );
     if (picked != null && picked != _selectedDate) {
       setState(() {
@@ -253,8 +289,62 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     }
   }
 
+  void _selectCurrency() async {
+    final String? selected = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Select Currency'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 400,
+            child: ListView.builder(
+              itemCount: _commonCurrencies.length,
+              itemBuilder: (context, index) {
+                final currency = _commonCurrencies[index];
+                final isSelected = currency == _selectedCurrency;
+                return ListTile(
+                  title: Text(currency),
+                  trailing: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
+                  selected: isSelected,
+                  onTap: () {
+                    Navigator.of(context).pop(currency);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    
+    if (selected != null) {
+      setState(() {
+        _selectedCurrency = selected;
+      });
+    }
+  }
+
   Future<void> _saveReceipt() async {
     if (!_formKey.currentState!.validate()) return;
+    
+    // Check if currency is selected
+    if (_selectedCurrency == null || _selectedCurrency!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a currency before saving'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -284,7 +374,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
           vendor: _titleController.text.trim(),
           date: _selectedDate ?? DateTime.now(),
           total: total,
-          currency: _detectedCurrency,
+          currency: _selectedCurrency,
           ocrText: existingBill.ocrText,
           categoryId: existingBill.categoryId,
           subtotal: existingBill.subtotal,
@@ -320,7 +410,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
           vendor: _titleController.text.trim(),
           date: _selectedDate ?? DateTime.now(),
           total: total,
-          currency: _detectedCurrency,
+          currency: _selectedCurrency,
           ocrText: _groceryItems.isNotEmpty 
             ? _groceryItems.map((item) => '${item['name']}: ${_detectedCurrency ?? '\$'}${item['price']}').join('\n')
             : 'Scanned receipt', // This identifies it as scanned, not manual
@@ -512,40 +602,57 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
-              // Currency Display
-              if (_detectedCurrency != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.currency_exchange, color: Colors.blue),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Detected Currency: $_detectedCurrency',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w500,
-                          color: Colors.blue,
-                        ),
+              // Currency Selection
+              InkWell(
+                onTap: _selectCurrency,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Currency *',
+                    border: OutlineInputBorder(
+                      borderSide: BorderSide(
+                        color: _selectedCurrency == null ? Colors.red : Colors.grey,
+                        width: _selectedCurrency == null ? 2 : 1,
                       ),
-                    ],
+                    ),
+                    prefixIcon: Icon(
+                      Icons.currency_exchange,
+                      color: _selectedCurrency == null ? Colors.red : Colors.grey,
+                    ),
+                    helperText: _detectedCurrency != null 
+                        ? 'Detected: $_detectedCurrency (tap to change)'
+                        : 'Currency not detected - Please select currency',
+                    helperStyle: TextStyle(
+                      color: _detectedCurrency != null ? Colors.green : Colors.red,
+                      fontSize: 12,
+                      fontWeight: _detectedCurrency == null ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    errorText: _selectedCurrency == null ? 'Required' : null,
+                  ),
+                  child: Text(
+                    _selectedCurrency ?? '⚠️ Select Currency (Required)',
+                    style: TextStyle(
+                      color: _selectedCurrency != null ? Colors.black : Colors.red,
+                      fontWeight: _selectedCurrency == null ? FontWeight.w600 : FontWeight.normal,
+                    ),
                   ),
                 ),
-              
-              if (_detectedCurrency != null) const SizedBox(height: 16),
+              ),
               
               // Date
               InkWell(
                 onTap: _selectDate,
                 child: InputDecorator(
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Date',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.calendar_today),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.calendar_today),
+                    helperText: widget.detectedDate != null 
+                        ? 'Date detected from receipt' 
+                        : 'Date not detected - using current date',
+                    helperStyle: TextStyle(
+                      color: widget.detectedDate != null ? Colors.green : Colors.orange,
+                      fontSize: 12,
+                    ),
                   ),
                   child: Text(
                     _selectedDate != null

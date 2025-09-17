@@ -25,6 +25,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   String? _detectedTitle;
   double? _detectedTotal;
   String? _detectedCurrency;
+  DateTime? _detectedDate;
   
   // New state variables for edge detection and cropping
   bool _isProcessingImage = false;
@@ -832,6 +833,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _detectedTitle = ocrResult.vendor;
         _detectedTotal = ocrResult.total;
         _detectedCurrency = ocrResult.currency;
+        _detectedDate = ocrResult.date;
         _isRunningOCR = false;
         _isOcrCompleted = true; // Enable Done button
       });
@@ -870,6 +872,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _processedImage = null;
       _scannedImagePath = null;
       _detectedCorners = null;
+      _detectedTitle = null;
+      _detectedTotal = null;
+      _detectedCurrency = null;
+      _detectedDate = null;
       _isProcessingImage = false;
       _isOcrCompleted = false; // Reset OCR completion flag
       _isPreprocessing = false;
@@ -1457,7 +1463,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
       print('  Detected currency: "$_detectedCurrency"');
       
       // OCR data should already be available from previous extraction
-      // No need to re-run OCR here - it was already done when user clicked "Extract Text"
+      // No need to re-run OCR here - it was already done automatically
       print('🔍 MAGIC CAMERA: Using existing OCR data for navigation:');
       print('  Vendor: "$_detectedTitle"');
       print('  Amount: $_detectedTotal');
@@ -1474,6 +1480,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
         'detectedTitle': _detectedTitle,
         'detectedTotal': _detectedTotal,
         'detectedCurrency': _detectedCurrency,
+        'detectedDate': _detectedDate,
       });
     }
   }
@@ -2021,14 +2028,14 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                       ),
                       const SizedBox(height: 12),
                     ],
-                    Text(
-                      _isOcrCompleted
-                        ? 'OCR completed automatically! Data extracted successfully.'
-                        : _isRunningOCR
-                          ? 'OCR is running automatically...'
-                          : _detectedCorners != null && _detectedCorners!.length == 4
-                            ? 'Edge detection completed! OCR will start automatically.\nTap "Extract Text" to re-run if needed.'
-                            : 'Image is ready for OCR processing.\nOCR will start automatically.',
+                      Text(
+                        _isOcrCompleted
+                          ? 'OCR completed automatically! Data extracted successfully.'
+                          : _isRunningOCR
+                            ? 'OCR is running automatically...'
+                            : _detectedCorners != null && _detectedCorners!.length == 4
+                              ? 'Edge detection completed! OCR will start automatically.'
+                              : 'Image is ready for OCR processing.\nOCR will start automatically.',
                       style: TextStyle(
                         fontSize: 12,
                         color: _detectedCorners != null && _detectedCorners!.length == 4 
@@ -2042,76 +2049,6 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                     // Action buttons
                     Row(
                       children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _isRunningOCR ? null : () async {
-                              if (_processedImage != null) {
-                                setState(() {
-                                  _isRunningOCR = true;
-                                });
-                                
-                                try {
-                                  print('🔍 OCR EXTRACTION: Starting legacy OCR extraction...');
-                                  final ocrResult = await _ocrService.processImage(_processedImage!);
-                                  
-                                  print('🔍 OCR EXTRACTION: Legacy OCR completed successfully');
-                                  print('  Vendor: "${ocrResult.vendor}"');
-                                  print('  Amount: ${ocrResult.total}');
-                                  print('  Currency: "${ocrResult.currency}"');
-                                  print('  Date: ${ocrResult.date}');
-                                  
-                                  setState(() {
-                                    _detectedTitle = ocrResult.vendor;
-                                    _detectedTotal = ocrResult.total;
-                                    _detectedCurrency = ocrResult.currency;
-                                    _isRunningOCR = false;
-                                    _isOcrCompleted = true; // Enable Done button
-                                  });
-                                  
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('OCR completed! Found: ${ocrResult.vendor ?? "Unknown vendor"}, ${ocrResult.total != null ? "\$${ocrResult.total!.toStringAsFixed(2)}" : "No amount"}'),
-                                        backgroundColor: Colors.green,
-                                        duration: const Duration(seconds: 3),
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  print('❌ OCR EXTRACTION: Failed: $e');
-                                  setState(() {
-                                    _isRunningOCR = false;
-                                    _isOcrCompleted = false; // Keep Done button disabled
-                                  });
-                                  
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('OCR extraction failed: ${e.toString()}'),
-                                        backgroundColor: Colors.red,
-                                        duration: const Duration(seconds: 3),
-                                      ),
-                                    );
-                                  }
-                                }
-                              }
-                            },
-                            icon: _isRunningOCR 
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.text_fields),
-                            label: Text(_isRunningOCR ? 'Extracting...' : 'Re-run OCR'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _isRunningOCR ? Colors.grey : Colors.blue,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () => _retakePhoto(),

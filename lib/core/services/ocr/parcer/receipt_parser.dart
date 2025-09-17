@@ -88,6 +88,7 @@ class ReceiptParser {
 
     // Date detection
     print('🔍 MAGIC PARSER: Starting date detection...');
+    print('🔍 MAGIC PARSER: Text being analyzed for date: "${normalized.length > 200 ? normalized.substring(0, 200) + "..." : normalized}"');
     final date = _rx.findFirstDate(normalized);
     print('🔍 MAGIC PARSER: Detected date: $date');
 

@@ -25,6 +25,15 @@ class AmountMatch {
 class RegexUtil{
   // Enhanced date patterns with better international support
   final List<RegExp> _dateRegexes = [
+    // Receipt number with date and time format: "Rech.Nr. 4572    30.07.2007/13:29:17"
+    RegExp(r'(?:Rech\.?Nr\.?\s*\d+\s+)(\d{1,2}\.\d{1,2}\.\d{4})', caseSensitive: false),
+    
+    // Date with time format: "30.07.2007/13:29:17"
+    RegExp(r'\b(\d{1,2}\.\d{1,2}\.\d{4})/\d{1,2}:\d{2}:\d{2}\b'),
+    
+    // Short date format: "26/04/15" (dd/mm/yy)
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2})\b'),
+    
     // European format: dd/mm/yyyy, dd.mm.yyyy, dd-mm-yyyy
     RegExp(r'(?:Date|TIME):\s*([A-Za-z]+ \d{1,2},?\s*\d{4})', caseSensitive: false),
   
@@ -973,12 +982,12 @@ bool _isObviousItemLine(String line) {
     // Check context for invalid patterns
     final upperLine = line.toUpperCase();
     
-    // Skip obvious non-amounts
+    // Skip obvious non-amounts - be more specific to avoid false rejections
     final invalidContexts = [
       'QTY', 'QUANTITY', 'ITEM #', 'SKU', 'UPC', 'BARCODE',
       'ORDER #', 'INVOICE #', 'TRANS #', 'REF #', 'P.O.#',
       'TABLE', 'ROOM', 'SEAT', 'GUEST', 'SERVER', 'CASHIER', 'REGISTER',
-      'PHONE', 'TEL', 'FAX', 'ZIP', 'POSTAL', 'ADDRESS',
+      'PHONE:', 'TEL:', 'FAX:', 'ZIP:', 'POSTAL:', 'ADDRESS:',
       'WEIGHT', 'LBS', 'KG', 'OZ', 'GRAMS',
       'TEMP', 'TEMPERATURE', '°F', '°C',
       'TIME', 'AM', 'PM', 'HOURS', 'MINS',
@@ -1050,8 +1059,9 @@ bool _isObviousItemLine(String line) {
     final allNumbers = RegExp(r'\d+\.?\d*').allMatches(line).map((m) => double.tryParse(m.group(0)!) ?? 0).toList();
     if (allNumbers.length > 1) {
       final maxAmount = allNumbers.reduce((a, b) => a > b ? a : b);
-      // If this amount is significantly smaller than the max amount in the line, it might be a partial match
-      if (amount < maxAmount * 0.1 && amount < 100) {
+      // Only reject if the amount is extremely small compared to max AND the max is very large (likely a reference number)
+      // This prevents rejecting valid totals like 2.99 when there's a large reference number like 99.0
+      if (amount < maxAmount * 0.01 && maxAmount > 1000 && amount < 10) {
         print('🔍 DEBUG: Rejecting potential partial match: $amount (max in line: $maxAmount)');
         return false;
       }
@@ -1454,9 +1464,13 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
   // Enhanced date detection with better parsing
   DateTime? findFirstDate(String text) {
   print('🔍 ENHANCED: Starting date detection in text: "${text.substring(0, text.length > 100 ? 100 : text.length)}..."');
+  print('🔍 ENHANCED: Full text length: ${text.length}');
+  print('🔍 ENHANCED: Full text: "$text"');
+  print('🔍 ENHANCED: Testing ${_dateRegexes.length} date patterns...');
   
   for (int i = 0; i < _dateRegexes.length; i++) {
     final pattern = _dateRegexes[i];
+    print('🔍 ENHANCED: Testing pattern $i: ${pattern.pattern}');
     final match = pattern.firstMatch(text);
     if (match != null) {
       // For labeled dates, extract the actual date part
@@ -1470,6 +1484,8 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
       } else {
         print('🔍 ENHANCED: Failed to parse or unreasonable date: "$dateStr"');
       }
+    } else {
+      print('🔍 ENHANCED: Pattern $i did not match');
     }
   }
   
@@ -1541,7 +1557,7 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
   bool _isReasonableDate(DateTime date) {
     final now = DateTime.now();
     final future = now.add(const Duration(days: 30));
-    final past = now.subtract(const Duration(days: 365 * 10)); // 10 years ago
+    final past = now.subtract(const Duration(days: 365 * 10)); // 20 years ago (for older receipts)
     
     return date.isAfter(past) && date.isBefore(future);
   }

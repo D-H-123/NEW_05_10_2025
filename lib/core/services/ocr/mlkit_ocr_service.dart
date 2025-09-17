@@ -265,6 +265,9 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'i_ocr_service.dart';
 import 'parcer/receipt_parser.dart';
 
+// Toggle verbose OCR debug logging
+const bool kOcrDebugLogs = true;
+
 /// Concrete OCR service using ML Kit on-device text recognition.
 /// - Returns both raw text and parsed receipt structure.
 /// - Parsing is delegated to ReceiptParser (testable separately).
@@ -350,11 +353,35 @@ class MlKitOcrService implements IOcrService {
     double lastBottom = -1;
     
     for (final element in elements) {
-      // If this element is significantly below the last one, start a new line
+      // Very aggressive line breaking: start new line for any significant vertical gap
       final verticalGap = element.top - lastBottom;
-      final shouldStartNewLine = verticalGap > (element.height * 0.3) && currentLineGroup.isNotEmpty;
+      final shouldStartNewLine = verticalGap > (element.height * 0.1) && currentLineGroup.isNotEmpty;
       
-      if (shouldStartNewLine) {
+      // Also break lines based on horizontal distance (new items are often far apart)
+      bool shouldBreakForHorizontalDistance = false;
+      if (currentLineGroup.isNotEmpty) {
+        final lastElement = currentLineGroup.last;
+        final horizontalGap = element.left - lastElement.right;
+        final avgWidth = (element.width + lastElement.width) / 2;
+        // If horizontal gap is more than 1.5x the average width, likely a new item
+        shouldBreakForHorizontalDistance = horizontalGap > (avgWidth * 1.5);
+        
+        if (kOcrDebugLogs) {
+          print('🔍 GROUPING: Element "${element.text}" - VGap: ${verticalGap.toStringAsFixed(1)}, HGap: ${horizontalGap.toStringAsFixed(1)}, AvgW: ${avgWidth.toStringAsFixed(1)}');
+          print('🔍 GROUPING: Should break vertical: $shouldStartNewLine, horizontal: $shouldBreakForHorizontalDistance');
+        }
+      }
+      
+      // Also break on currency symbols (new items often start with prices)
+      bool shouldBreakOnCurrency = false;
+      if (currentLineGroup.isNotEmpty) {
+        final elementText = element.text.trim();
+        final lastElementText = currentLineGroup.last.text.trim();
+        // If current element starts with currency symbol and last element doesn't end with one
+        shouldBreakOnCurrency = elementText.startsWith('£') && !lastElementText.endsWith('£');
+      }
+      
+      if (shouldStartNewLine || shouldBreakForHorizontalDistance || shouldBreakOnCurrency) {
         if (currentLineGroup.isNotEmpty) {
           lineGroups.add(List.from(currentLineGroup));
           currentLineGroup.clear();
@@ -440,7 +467,9 @@ class MlKitOcrService implements IOcrService {
   
   // NEW: Create a reconstructed text that better preserves spatial relationships
   String _createSpatiallyAwareText(List<OcrLine> lines) {
-    print('🔍 ENHANCED: Creating spatially-aware text from ${lines.length} lines');
+    if (kOcrDebugLogs) {
+      print('🔍 ENHANCED: Creating spatially-aware text from ${lines.length} lines');
+    }
     
     final buffer = StringBuffer();
     for (int i = 0; i < lines.length; i++) {
@@ -448,7 +477,9 @@ class MlKitOcrService implements IOcrService {
     }
     
     final result = buffer.toString();
-    print('🔍 ENHANCED: Spatially-aware text preview: ${result.substring(0, result.length > 500 ? 500 : result.length)}...');
+    if (kOcrDebugLogs) {
+      print('🔍 ENHANCED: Spatially-aware text preview: ${result.substring(0, result.length > 500 ? 500 : result.length)}...');
+    }
     
     return result;
   }
@@ -474,56 +505,40 @@ class MlKitOcrService implements IOcrService {
     // NEW: Create improved raw text from spatial lines
     final spatialRawText = _createSpatiallyAwareText(lines);
     
-    // DEBUG: Compare original vs spatial text
-    print('🔍 DEBUG: ORIGINAL RAW OCR TEXT:');
-    print('=' * 80);
-    print(recognized.text);
-    print('=' * 80);
-    
-    print('🔍 DEBUG: ENHANCED SPATIAL RAW TEXT:');
-    print('=' * 80);
-    print(spatialRawText);
-    print('=' * 80);
-    
-    print('🔍 DEBUG: ENHANCED SPATIAL TEXT BY LINES:');
-    print('=' * 80);
-    for (int i = 0; i < lines.length; i++) {
-      print('Line $i: "${lines[i].text}"');
+    // DEBUG: Show the extracted text for date detection
+    if (kOcrDebugLogs) {
+      print('🔍 DEBUG: Raw OCR text extracted:');
+      print('🔍 DEBUG: Text length: ${spatialRawText.length}');
+      print('🔍 DEBUG: First 500 characters: ${spatialRawText.length > 500 ? spatialRawText.substring(0, 500) + "..." : spatialRawText}');
+      print('🔍 DEBUG: Full text: $spatialRawText');
     }
-    print('=' * 80);
+    
+    // REMOVED: Raw OCR text logging to eliminate OCR Run 2
+    
+    if (kOcrDebugLogs) {
+      print('🔍 DEBUG: ENHANCED SPATIAL RAW TEXT:');
+      print('=' * 80);
+      print(spatialRawText);
+      print('=' * 80);
+    }
+    
+    if (kOcrDebugLogs) {
+      print('🔍 DEBUG: ENHANCED SPATIAL TEXT BY LINES:');
+      print('=' * 80);
+      for (int i = 0; i < lines.length; i++) {
+        print('Line $i: "${lines[i].text}"');
+      }
+      print('=' * 80);
+    }
 
     // CHANGED: Parse using the enhanced spatial text instead of original raw text
     print('🔍 MAGIC: Starting receipt parsing with enhanced spatial text...');
     var parsed = _parser.parse(spatialRawText, lines);
     
-    // NEW: Fallback strategy - if spatial parsing fails, try with original text
-    if (parsed.total == null || parsed.total == 0.0) {
-      print('🔍 FALLBACK: Spatial parsing failed, trying with original text...');
-      
-      // Create basic OcrLine objects for fallback
-      final fallbackLines = <OcrLine>[];
-      for (final block in recognized.blocks) {
-        for (final line in block.lines) {
-          final box = line.boundingBox;
-          fallbackLines.add(OcrLine(
-            line.text,
-            left: box.left,
-            top: box.top,
-            width: box.width,
-            height: box.height,
-          ));
-        }
-      }
-      
-      parsed = _parser.parse(recognized.text, fallbackLines);
-    }
+    // REMOVED: Fallback to original raw text to eliminate OCR Run 2
+    // Using only enhanced spatial text for better accuracy
     
-    print('🔍 MAGIC: Final parsing results:');
-    print('  Vendor: ${parsed.vendor}');
-    print('  Total: ${parsed.total}');
-    print('  Currency: ${parsed.currency}');
-    print('  Date: ${parsed.date}');
-    print('  Line items: ${parsed.lineItems.length}');
+    // Removed verbose duplicate summary logs; UI layer prints a concise summary
 
     // CHANGED: Return enhanced spatial text instead of original raw text
     return OcrResult(
@@ -586,34 +601,10 @@ class MlKitOcrService implements IOcrService {
     print('🔍 MAGIC: Starting receipt parsing...');
     var parsed = _parser.parse(spatialRawText, lines);
     
-    // NEW: Fallback strategy
-    if (parsed.total == null || parsed.total == 0.0) {
-      print('🔍 FALLBACK: Spatial parsing failed, trying with original text...');
-      
-      // Create basic OcrLine objects for fallback
-      final fallbackLines = <OcrLine>[];
-      for (final block in recognized.blocks) {
-        for (final line in block.lines) {
-          final box = line.boundingBox;
-          fallbackLines.add(OcrLine(
-            line.text,
-            left: box.left,
-            top: box.top,
-            width: box.width,
-            height: box.height,
-          ));
-        }
-      }
-      
-      parsed = _parser.parse(recognized.text, fallbackLines);
-    }
+    // REMOVED: Fallback to original raw text to eliminate OCR Run 2
+    // Using only enhanced spatial text for better accuracy
     
-    print('🔍 MAGIC: Parsing results:');
-    print('  Vendor: ${parsed.vendor}');
-    print('  Total: ${parsed.total}');
-    print('  Currency: ${parsed.currency}');
-    print('  Date: ${parsed.date}');
-    print('  Line items: ${parsed.lineItems.length}');
+    // Removed verbose duplicate summary logs; UI layer prints a concise summary
 
     // CHANGED: Return enhanced spatial text
     return OcrResult(

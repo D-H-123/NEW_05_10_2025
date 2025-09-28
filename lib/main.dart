@@ -23,7 +23,6 @@ void main() async {
   ));
   await EasyLocalization.ensureInitialized();
   await LocalStorageService.init();
-  await LocalStorageService.addSampleData();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );

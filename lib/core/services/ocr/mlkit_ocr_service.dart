@@ -447,6 +447,18 @@ class MlKitOcrService implements IOcrService {
       final avgWidth = (current.width + previous.width) / 2;
       final relativeGap = gap / avgWidth;
       
+      // Check if this might be a date-time concatenation
+      final combinedText = elements.map((e) => e.text).join('');
+      final isDateTimePattern = _isDateTimeConcatenation(combinedText);
+      
+      if (isDateTimePattern) {
+        // Special handling for date-time patterns
+        final separated = _separateDateTime(combinedText);
+        if (separated != null) {
+          return separated;
+        }
+      }
+      
       // Add appropriate spacing based on gap size
       if (relativeGap > 1.0) {
         // Large gap - likely separate fields (e.g., "Total    19.96")
@@ -463,6 +475,52 @@ class MlKitOcrService implements IOcrService {
     }
     
     return buffer.toString();
+  }
+  
+  // Check if text appears to be a concatenated date-time pattern
+  bool _isDateTimeConcatenation(String text) {
+    // Patterns like: 04.01.201815:17, 23-11-2011 19:31, 2018-01-0415:17
+    final dateTimePatterns = [
+      RegExp(r'\d{1,2}\.\d{1,2}\.\d{4}\d{1,2}:\d{2}'), // 04.01.201815:17
+      RegExp(r'\d{1,2}-\d{1,2}-\d{4}\d{1,2}:\d{2}'),   // 23-11-201115:17
+      RegExp(r'\d{4}-\d{1,2}-\d{1,2}\d{1,2}:\d{2}'),   // 2018-01-0415:17
+      RegExp(r'\d{1,2}/\d{1,2}/\d{4}\d{1,2}:\d{2}'),   // 04/01/201815:17
+    ];
+    
+    return dateTimePatterns.any((pattern) => pattern.hasMatch(text));
+  }
+  
+  // Separate concatenated date-time into proper format
+  String? _separateDateTime(String text) {
+    // Pattern: 04.01.201815:17 -> 04.01.2018 15:17
+    final pattern1 = RegExp(r'(\d{1,2}\.\d{1,2}\.\d{4})(\d{1,2}:\d{2})');
+    var match = pattern1.firstMatch(text);
+    if (match != null) {
+      return '${match.group(1)} ${match.group(2)}';
+    }
+    
+    // Pattern: 23-11-201115:17 -> 23-11-2011 15:17
+    final pattern2 = RegExp(r'(\d{1,2}-\d{1,2}-\d{4})(\d{1,2}:\d{2})');
+    match = pattern2.firstMatch(text);
+    if (match != null) {
+      return '${match.group(1)} ${match.group(2)}';
+    }
+    
+    // Pattern: 2018-01-0415:17 -> 2018-01-04 15:17
+    final pattern3 = RegExp(r'(\d{4}-\d{1,2}-\d{1,2})(\d{1,2}:\d{2})');
+    match = pattern3.firstMatch(text);
+    if (match != null) {
+      return '${match.group(1)} ${match.group(2)}';
+    }
+    
+    // Pattern: 04/01/201815:17 -> 04/01/2018 15:17
+    final pattern4 = RegExp(r'(\d{1,2}/\d{1,2}/\d{4})(\d{1,2}:\d{2})');
+    match = pattern4.firstMatch(text);
+    if (match != null) {
+      return '${match.group(1)} ${match.group(2)}';
+    }
+    
+    return null;
   }
   
   // NEW: Create a reconstructed text that better preserves spatial relationships

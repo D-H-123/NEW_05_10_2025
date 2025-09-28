@@ -10,6 +10,7 @@ import 'features/storage/bill/bill_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/camera/post_capture_page.dart';
 import 'features/analysis/analysis.dart';
+import 'core/theme/app_theme.dart';
 
 
 
@@ -68,6 +69,7 @@ GoRoute(path: '/post-capture', builder: (context, state) {
       detectedTotal: args['detectedTotal'],
       detectedCurrency: args['detectedCurrency'],
       detectedDate: args['detectedDate'],
+      detectedCategory: args['detectedCategory'],
       isEditing: args['isEditing'] ?? false,
       existingBill: args['existingBill'],
     );
@@ -86,12 +88,8 @@ class smart_receipt extends StatelessWidget {
       title: 'SmartReceipt',
       debugShowCheckedModeBanner: false,
       routerConfig: _router,
-      // Minimal theme following neutral modern style.
-      theme: ThemeData(
-        primarySwatch: Colors.teal,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        useMaterial3: true,
-      ),
+      // Modern responsive theme
+      theme: AppTheme.lightTheme,
       localizationsDelegates: context.localizationDelegates,
       supportedLocales: context.supportedLocales,
       locale: context.locale,

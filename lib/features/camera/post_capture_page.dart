@@ -3,10 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import '../../core/services/premium_service.dart';
-import '../../core/services/ocr/mlkit_ocr_service.dart';
 import '../../features/storage/bill/bill_provider.dart';
 import '../../features/storage/models/bill_model.dart';
+import '../../core/services/local_storage_service.dart';
 
 class PostCapturePage extends ConsumerStatefulWidget {
   final String imagePath;
@@ -14,6 +13,7 @@ class PostCapturePage extends ConsumerStatefulWidget {
   final double? detectedTotal;
   final String? detectedCurrency;
   final DateTime? detectedDate;
+  final String? detectedCategory;
   final bool isEditing;
   final Bill? existingBill;
 
@@ -24,6 +24,7 @@ class PostCapturePage extends ConsumerStatefulWidget {
     this.detectedTotal,
     this.detectedCurrency,
     this.detectedDate,
+    this.detectedCategory,
     this.isEditing = false,
     this.existingBill,
   });
@@ -48,6 +49,12 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
   bool _isSaving = false;
   String? _detectedCurrency;
   String? _selectedCurrency;
+  String? _detectedCategory;
+  String? _selectedCategory;
+  
+  // Settings state
+  bool _isNotesEnabled = false;
+  bool _isLocationEnabled = false;
   
   // Common currencies for manual selection
   final List<String> _commonCurrencies = [
@@ -56,10 +63,36 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     'HKD', 'NZD', 'ZAR', 'TRY', 'THB', 'MYR', 'PHP', 'IDR', 'VND', 'TWD'
   ];
 
+  // Available categories for user selection
+  final List<String> _availableCategoriesList = [
+    'Services',
+    'Groceries',
+    'Food & Dining',
+    'Transport & Fuel',
+    'Pharmacy & Health',
+    'Furniture & Home',
+    'Electronics',
+    'Fashion & Clothing',
+    'Entertainment',
+    'Utilities',
+    'Insurance',
+    'Education',
+    'Travel',
+    'Personal Care',
+    'Office Supplies',
+    'Other'
+  ];
+
   @override
   void initState() {
     super.initState();
+    _loadSettings();
     _initializeFields();
+  }
+
+  void _loadSettings() {
+    _isNotesEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kNotes);
+    _isLocationEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
   }
 
   void _initializeFields() {
@@ -77,8 +110,13 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       _selectedCurrency = bill.currency; // Set selected currency for existing bills
       _selectedDate = bill.date ?? DateTime.now();
       _tagController.text = bill.tags?.join(', ') ?? '';
-      _locationController.text = bill.location ?? '';
-      _notesController.text = bill.notes ?? '';
+      _selectedCategory = bill.categoryId;
+      if (_isLocationEnabled) {
+        _locationController.text = bill.location ?? '';
+      }
+      if (_isNotesEnabled) {
+        _notesController.text = bill.notes ?? '';
+      }
       
       print('🔍 MAGIC POST-CAPTURE: Loaded existing bill:');
       print('  Vendor: "${bill.vendor}"');
@@ -95,12 +133,21 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       print('🔍 MAGIC POST-CAPTURE: Detected total: ${widget.detectedTotal}');
       print('🔍 MAGIC POST-CAPTURE: Detected currency: "${widget.detectedCurrency}"');
       print('🔍 MAGIC POST-CAPTURE: Detected date: ${widget.detectedDate}');
+      print('🔍 MAGIC POST-CAPTURE: Detected category: "${widget.detectedCategory}"');
       
       _titleController.text = widget.detectedTitle ?? '';
       _totalController.text = widget.detectedTotal?.toStringAsFixed(2) ?? '';
       _detectedCurrency = widget.detectedCurrency;
       _selectedCurrency = widget.detectedCurrency; // Only set if currency was detected
       _selectedDate = widget.detectedDate ?? DateTime.now();
+      
+      // Set detected category for automatic selection
+      if (widget.detectedCategory != null && widget.detectedCategory!.isNotEmpty) {
+        _detectedCategory = widget.detectedCategory;
+        _selectedCategory = widget.detectedCategory;
+        _tagController.text = widget.detectedCategory!;
+        print('🔍 MAGIC POST-CAPTURE: Auto-selected category: "${widget.detectedCategory}"');
+      }
 
 
 
@@ -141,6 +188,44 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
   }
 
 
+  /// Parse amount string handling both US and European formats
+  double? _parseAmount(String amountStr) {
+    if (amountStr.isEmpty) return null;
+    
+    // Remove any currency symbols and spaces
+    String cleaned = amountStr.replaceAll(RegExp(r'[\$€£¥₹\s]'), '');
+    
+    // Handle different decimal separators
+    if (cleaned.contains(',') && cleaned.contains('.')) {
+      final lastComma = cleaned.lastIndexOf(',');
+      final lastDot = cleaned.lastIndexOf('.');
+      
+      if (lastComma > lastDot) {
+        // European style: 1.234,56
+        cleaned = cleaned.replaceAll('.', '').replaceAll(',', '.');
+      } else {
+        // US style: 1,234.56
+        cleaned = cleaned.replaceAll(',', '');
+      }
+    } else if (cleaned.contains(',')) {
+      // Could be thousands separator or decimal
+      final commaIndex = cleaned.lastIndexOf(',');
+      final digitsAfterComma = cleaned.substring(commaIndex + 1).length;
+      final digitsBefore = cleaned.substring(0, commaIndex);
+      
+      if (digitsAfterComma == 2 && !digitsBefore.contains(',') && 
+          !digitsBefore.contains('.') && digitsBefore.length <= 6) {
+        // Likely decimal: 12,34
+        cleaned = cleaned.replaceAll(',', '.');
+      } else {
+        // Likely thousands: 1,234 or 12,345
+        cleaned = cleaned.replaceAll(',', '');
+      }
+    }
+    
+    return double.tryParse(cleaned);
+  }
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -152,124 +237,77 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     super.dispose();
   }
 
-  Future<void> _performOcrScan() async {
-    if (!PremiumService.isOcrAvailable) {
-      _showPremiumUpgradeDialog();
-      return;
+
+
+  String _getCurrencySymbol() {
+    switch (_selectedCurrency) {
+      case 'USD':
+        return '\$';
+      case 'EUR':
+        return '€';
+      case 'GBP':
+        return '£';
+      case 'JPY':
+        return '¥';
+      case 'CAD':
+        return 'C\$';
+      case 'AUD':
+        return 'A\$';
+      case 'CHF':
+        return 'CHF';
+      case 'CNY':
+        return '¥';
+      case 'INR':
+        return '₹';
+      case 'BRL':
+        return 'R\$';
+      case 'MXN':
+        return 'MX\$';
+      case 'KRW':
+        return '₩';
+      case 'SGD':
+        return 'S\$';
+      case 'HKD':
+        return 'HK\$';
+      case 'NZD':
+        return 'NZ\$';
+      case 'SEK':
+        return 'kr';
+      case 'NOK':
+        return 'kr';
+      case 'DKK':
+        return 'kr';
+      case 'PLN':
+        return 'zł';
+      case 'CZK':
+        return 'Kč';
+      case 'HUF':
+        return 'Ft';
+      case 'RUB':
+        return '₽';
+      case 'TRY':
+        return '₺';
+      case 'ZAR':
+        return 'R';
+      case 'ILS':
+        return '₪';
+      case 'AED':
+        return 'د.إ';
+      case 'SAR':
+        return 'ر.س';
+      case 'THB':
+        return '฿';
+      case 'MYR':
+        return 'RM';
+      case 'IDR':
+        return 'Rp';
+      case 'PHP':
+        return '₱';
+      case 'VND':
+        return '₫';
+      default:
+        return '\$'; // Default to USD symbol
     }
-
-    setState(() {
-      _isOcrProcessing = true;
-    });
-
-    try {
-      final ocrService = MlKitOcrService();
-      final file = File(widget.imagePath);
-      
-      // Check if this is a preprocessed image (from camera pipeline)
-      // If so, use processPreprocessedImage to avoid double preprocessing
-      final result = file.path.contains('preprocessed') 
-          ? await ocrService.processPreprocessedImage(file)
-          : await ocrService.processImage(file);
-      
-      // Parse the OCR result to extract items
-      final items = _parseOcrToItems(result.rawText);
-      setState(() {
-        _groceryItems = items;
-        _showOcrResults = true;
-        _detectedCurrency = result.currency;
-        _selectedCurrency = result.currency; // Only set if currency was detected
-      });
-        
-      // Update total if detected
-      if (result.total != null) {
-        _totalController.text = result.total!.toStringAsFixed(2);
-      }
-      
-      // Update vendor if detected
-      if (result.vendor != null && result.vendor!.isNotEmpty) {
-        _titleController.text = result.vendor!;
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('OCR processing failed: $e')),
-      );
-    } finally {
-      setState(() {
-        _isOcrProcessing = false;
-      });
-    }
-  }
-
-  List<Map<String, dynamic>> _parseOcrToItems(String ocrText) {
-    final lines = ocrText.split('\n');
-    final items = <Map<String, dynamic>>[];
-    
-    for (String line in lines) {
-      // Simple regex to find items with prices
-      final priceRegex = RegExp(r'(\d+\.\d{2})');
-      final match = priceRegex.firstMatch(line);
-      
-      if (match != null) {
-        final price = double.tryParse(match.group(1) ?? '0');
-        final itemName = line.replaceAll(priceRegex, '').trim();
-        
-        if (itemName.isNotEmpty && price != null && price > 0) {
-          items.add({
-            'name': itemName,
-            'price': price,
-            'quantity': 1,
-            'isEditable': true,
-          });
-        }
-      }
-    }
-    
-    return items;
-  }
-
-  void _showPremiumUpgradeDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('🔒 Premium Feature'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('OCR Text Extraction is a premium feature.'),
-            const SizedBox(height: 16),
-            const Text('Premium features include:'),
-            const SizedBox(height: 8),
-            ...PremiumService.premiumFeatures.map((feature) => 
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check, color: Colors.green, size: 16),
-                    const SizedBox(width: 8),
-                    Text(feature),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Maybe Later'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              PremiumService.showPremiumUpgrade();
-            },
-            child: const Text('Upgrade Now'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _selectDate() async {
@@ -331,6 +369,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     }
   }
 
+
   Future<void> _saveReceipt() async {
     if (!_formKey.currentState!.validate()) return;
     
@@ -346,13 +385,25 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       return;
     }
 
+    // Check if tag is provided
+    if (_tagController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a category/tag before saving'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isSaving = true;
     });
 
     try {
-      // Parse total amount
-      final total = double.tryParse(_totalController.text) ?? 0.0;
+      // Parse total amount (handle both US and European formats)
+      final total = _parseAmount(_totalController.text) ?? 0.0;
       
       // Prepare tags and location
       final tags = _tagController.text.trim();
@@ -360,8 +411,8 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
         ? tags.split(',').map((tag) => tag.trim()).where((tag) => tag.isNotEmpty).toList()
         : null;
       
-      final location = _locationController.text.trim();
-      final locationValue = location.isNotEmpty ? location : null;
+      final location = _isLocationEnabled ? _locationController.text.trim() : '';
+      final locationValue = _isLocationEnabled && location.isNotEmpty ? location : null;
 
       if (widget.isEditing && widget.existingBill != null) {
         // Update existing bill
@@ -376,10 +427,10 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
           total: total,
           currency: _selectedCurrency,
           ocrText: existingBill.ocrText,
-          categoryId: existingBill.categoryId,
+          categoryId: _selectedCategory,
           subtotal: existingBill.subtotal,
           tax: existingBill.tax,
-          notes: _notesController.text.trim(),
+          notes: _isNotesEnabled ? _notesController.text.trim() : '',
           tags: tagList,
           location: locationValue,
           createdAt: existingBill.createdAt,
@@ -414,9 +465,10 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
           ocrText: _groceryItems.isNotEmpty 
             ? _groceryItems.map((item) => '${item['name']}: ${_detectedCurrency ?? '\$'}${item['price']}').join('\n')
             : 'Scanned receipt', // This identifies it as scanned, not manual
+          categoryId: _selectedCategory,
           tags: tagList,
           location: locationValue,
-          notes: _notesController.text.trim(),
+          notes: _isNotesEnabled ? _notesController.text.trim() : '',
         );
 
         // Save the bill to database
@@ -479,22 +531,30 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
             children: [
               // Receipt Image Preview
               Container(
-                height: 200,
+                height: 250,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.teal.shade200, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.teal.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   child: Image.file(
                     File(widget.imagePath),
-                    fit: BoxFit.cover,
+                    fit: BoxFit.contain, // Changed from cover to contain to show full image
+                    alignment: Alignment.center,
                   ),
                 ),
               ),
               
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               
               // Fallback OCR Loading Indicator
               if (_isOcrProcessing && 
@@ -503,24 +563,35 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                    color: Colors.teal.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.teal.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Row(
                     children: [
-                      const SizedBox(
+                      SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.teal.shade600),
+                        ),
                       ),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Analyzing receipt...',
                           style: TextStyle(
-                            color: Colors.blue,
-                            fontWeight: FontWeight.w500,
+                            color: Colors.teal.shade700,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
                           ),
                         ),
                       ),
@@ -528,37 +599,15 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                   ),
                 ),
               
-              const SizedBox(height: 24),
-              
-              // OCR Scan Button
-              if (!_showOcrResults)
-                Center(
-                  child: ElevatedButton.icon(
-                    onPressed: _isOcrProcessing ? null : _performOcrScan,
-                    icon: _isOcrProcessing 
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.document_scanner),
-                    label: Text(_isOcrProcessing ? 'Processing...' : 'Extract Text (Premium)'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: PremiumService.isOcrAvailable 
-                        ? Colors.blue 
-                        : Colors.grey,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    ),
-                  ),
-                ),
-              
-              const SizedBox(height: 24),
               
               // Basic Information
-              const Text(
+              Text(
                 'Receipt Information',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 18, 
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal.shade700,
+                ),
               ),
               const SizedBox(height: 16),
               
@@ -566,7 +615,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(
-                  labelText: 'Store/Company Name',
+                  labelText: 'Store/Company Name *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.store),
                 ),
@@ -580,63 +629,103 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
-              // Total Amount
-              TextFormField(
-                controller: _totalController,
-                decoration: const InputDecoration(
-                  labelText: 'Total Amount',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.attach_money),
-                ),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter total amount';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'Please enter a valid amount';
-                  }
-                  return null;
+              // Currency and Amount (Responsive Horizontal Layout)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Responsive breakpoints
+                  final screenWidth = constraints.maxWidth;
+                  final isSmallScreen = screenWidth < 360;
+                  final isVerySmallScreen = screenWidth < 320;
+                  
+                  // Adjust flex ratios based on screen size - give more space to currency
+                  final currencyFlex = isVerySmallScreen ? 3 : (isSmallScreen ? 4 : 4);
+                  final amountFlex = isVerySmallScreen ? 5 : (isSmallScreen ? 6 : 6);
+                  
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Currency Field (Responsive width)
+                      Expanded(
+                        flex: currencyFlex,
+                        child: InkWell(
+                          onTap: _selectCurrency,
+                          child: InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Currency *',
+                              border: OutlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: _selectedCurrency == null ? Colors.red : Colors.grey,
+                                  width: _selectedCurrency == null ? 2 : 1,
+                                ),
+                              ),
+                              prefixIcon: Icon(
+                                Icons.currency_exchange,
+                                color: _selectedCurrency == null ? Colors.red : Colors.grey,
+                                size: isVerySmallScreen ? 18 : 20,
+                              ),
+                              suffixIcon: Icon(
+                                Icons.keyboard_arrow_down,
+                                color: Colors.grey.shade600,
+                                size: isVerySmallScreen ? 18 : 20,
+                              ),
+                              errorText: _selectedCurrency == null ? 'Required' : null,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: isVerySmallScreen ? 8 : 12,
+                                vertical: isVerySmallScreen ? 12 : 16,
+                              ),
+                            ),
+                            child: Text(
+                              _selectedCurrency ?? 'Select Currency',
+                              style: TextStyle(
+                                color: _selectedCurrency == null ? Colors.red : Colors.black,
+                                fontWeight: _selectedCurrency == null ? FontWeight.w600 : FontWeight.normal,
+                                fontSize: isVerySmallScreen ? 13 : 14,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      SizedBox(width: isVerySmallScreen ? 8 : 12),
+                      
+                      // Amount Field (Responsive width)
+                      Expanded(
+                        flex: amountFlex,
+                        child: TextFormField(
+                          controller: _totalController,
+                          decoration: InputDecoration(
+                            labelText: 'Total Amount *',
+                            border: const OutlineInputBorder(),
+                            prefixText: _getCurrencySymbol(),
+                            prefixStyle: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                              fontSize: isVerySmallScreen ? 14 : 16,
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: isVerySmallScreen ? 8 : 12,
+                              vertical: isVerySmallScreen ? 12 : 16,
+                            ),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter total amount';
+                            }
+                            if (double.tryParse(value) == null) {
+                              return 'Please enter a valid amount';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  );
                 },
               ),
               
               const SizedBox(height: 16),
-              
-              // Currency Selection
-              InkWell(
-                onTap: _selectCurrency,
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Currency *',
-                    border: OutlineInputBorder(
-                      borderSide: BorderSide(
-                        color: _selectedCurrency == null ? Colors.red : Colors.grey,
-                        width: _selectedCurrency == null ? 2 : 1,
-                      ),
-                    ),
-                    prefixIcon: Icon(
-                      Icons.currency_exchange,
-                      color: _selectedCurrency == null ? Colors.red : Colors.grey,
-                    ),
-                    helperText: _detectedCurrency != null 
-                        ? 'Detected: $_detectedCurrency (tap to change)'
-                        : 'Currency not detected - Please select currency',
-                    helperStyle: TextStyle(
-                      color: _detectedCurrency != null ? Colors.green : Colors.red,
-                      fontSize: 12,
-                      fontWeight: _detectedCurrency == null ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                    errorText: _selectedCurrency == null ? 'Required' : null,
-                  ),
-                  child: Text(
-                    _selectedCurrency ?? '⚠️ Select Currency (Required)',
-                    style: TextStyle(
-                      color: _selectedCurrency != null ? Colors.black : Colors.red,
-                      fontWeight: _selectedCurrency == null ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              ),
               
               // Date
               InkWell(
@@ -646,13 +735,6 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                     labelText: 'Date',
                     border: const OutlineInputBorder(),
                     prefixIcon: const Icon(Icons.calendar_today),
-                    helperText: widget.detectedDate != null 
-                        ? 'Date detected from receipt' 
-                        : 'Date not detected - using current date',
-                    helperStyle: TextStyle(
-                      color: widget.detectedDate != null ? Colors.green : Colors.orange,
-                      fontSize: 12,
-                    ),
                   ),
                   child: Text(
                     _selectedDate != null
@@ -664,29 +746,103 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
-              // Tag
+              // Tag/Category (Now compulsory)
               TextFormField(
                 controller: _tagController,
-                decoration: const InputDecoration(
-                  labelText: 'Tag (Optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.tag),
-                  hintText: 'e.g., Groceries, Work, Personal',
+                decoration: InputDecoration(
+                  labelText: 'Category *',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.category),
+                  errorText: _tagController.text.trim().isEmpty ? 'Category is required' : null,
                 ),
+                readOnly: true,
+                onTap: () {
+                  // Focus on the field to show keyboard if needed
+                },
               ),
               
               const SizedBox(height: 16),
               
-              // Location
-              TextFormField(
-                controller: _locationController,
-                decoration: const InputDecoration(
-                  labelText: 'Location (Optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.location_on),
-                  hintText: 'e.g., Walmart, Downtown',
+              // Category selection chips (Responsive)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final screenWidth = constraints.maxWidth;
+                  final isVerySmallScreen = screenWidth < 320;
+                  
+                  return Container(
+                    height: isVerySmallScreen ? 50 : 60,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _availableCategoriesList.length,
+                      itemBuilder: (context, index) {
+                        final category = _availableCategoriesList[index];
+                        final isSelected = _selectedCategory == category;
+                        final isDetected = _detectedCategory == category;
+                        
+                        return Padding(
+                          padding: EdgeInsets.only(right: isVerySmallScreen ? 8.0 : 12.0),
+                          child: FilterChip(
+                            label: Text(
+                              category,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.grey.shade700,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                fontSize: isVerySmallScreen ? 12 : 14,
+                              ),
+                            ),
+                        selected: isSelected,
+                        onSelected: (selected) {
+                          setState(() {
+                            _selectedCategory = category;
+                            _tagController.text = category;
+                          });
+                        },
+                        backgroundColor: isDetected 
+                            ? Colors.blue.shade50 
+                            : Colors.grey.shade50,
+                        selectedColor: Colors.blue.shade600,
+                        checkmarkColor: Colors.white,
+                        side: BorderSide(
+                          color: isDetected 
+                              ? Colors.blue.shade300 
+                              : Colors.grey.shade300,
+                          width: 1.5,
+                        ),
+                        avatar: isDetected 
+                            ? Icon(
+                                Icons.auto_awesome, 
+                                size: 18, 
+                                color: Colors.blue.shade600,
+                              )
+                            : null,
+                        elevation: isSelected ? 2 : 0,
+                        shadowColor: Colors.blue.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    );
+                  },
                 ),
+              );
+                },
               ),
+              
+              const SizedBox(height: 16),
+              
+              // Location (only if enabled in settings)
+              if (_isLocationEnabled) ...[
+                TextFormField(
+                  controller: _locationController,
+                  decoration: const InputDecoration(
+                    labelText: 'Location (Optional)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.location_on),
+                    hintText: 'e.g., Walmart, Downtown',
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               
               const SizedBox(height: 16),
               
@@ -703,31 +859,43 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
-              // Notes
-              TextFormField(
-                controller: _notesController,
-                decoration: const InputDecoration(
-                  labelText: 'Notes (Optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.note),
-                  hintText: 'Additional notes...',
+              // Notes (only if enabled in settings)
+              if (_isNotesEnabled) ...[
+                TextFormField(
+                  controller: _notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (Optional)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.note),
+                    hintText: 'Additional notes...',
+                  ),
+                  maxLines: 3,
                 ),
-                maxLines: 3,
-              ),
-              
-              const SizedBox(height: 24),
+                const SizedBox(height: 16),
+              ],
               
               // OCR Results (if available)
               if (_showOcrResults && _groceryItems.isNotEmpty) ...[
-                const Text(
+                Text(
                   'Detected Items',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 18, 
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Container(
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: ListView.builder(
                     shrinkWrap: true,
@@ -749,7 +917,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                 ),
               ],
               
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
             ],
           ),
         ),

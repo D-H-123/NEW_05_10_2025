@@ -23,48 +23,92 @@ class AmountMatch {
 }
 
 class RegexUtil{
-  // Enhanced date patterns with better international support
+  // Enhanced date patterns with comprehensive real-world support
   final List<RegExp> _dateRegexes = [
+    // HIGH PRIORITY: Date with time formats (most common in receipts)
+    
+    // US format with comma and AM/PM: "4/15/24,11:54 AM", "12/25/23,3:45 PM"
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2}),\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\b', caseSensitive: false),
+    
+    // US format with comma and 24h time: "4/15/24,11:54", "12/25/23,15:45"
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2}),\d{1,2}:\d{2}\b'),
+    
+    // US format with space and AM/PM: "4/15/24 11:54 AM", "12/25/23 3:45 PM"
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2})\s+\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\b', caseSensitive: false),
+    
+    // US format with space and 24h time: "4/15/24 11:54", "12/25/23 15:45"
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2})\s+\d{1,2}:\d{2}\b'),
+    
+    // European format with comma and time: "15/4/24,11:54", "25/12/23,15:45"
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2}),\d{1,2}:\d{2}\b'),
+    
+    // European format with space and time: "15/4/24 11:54", "25/12/23 15:45"
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2})\s+\d{1,2}:\d{2}\b'),
+    
     // Receipt number with date and time format: "Rech.Nr. 4572    30.07.2007/13:29:17"
     RegExp(r'(?:Rech\.?Nr\.?\s*\d+\s+)(\d{1,2}\.\d{1,2}\.\d{4})', caseSensitive: false),
     
     // Date with time format: "30.07.2007/13:29:17"
     RegExp(r'\b(\d{1,2}\.\d{1,2}\.\d{4})/\d{1,2}:\d{2}:\d{2}\b'),
     
+    // Date with time format: "30.07.2007 13:29:17"
+    RegExp(r'\b(\d{1,2}\.\d{1,2}\.\d{4})\s+\d{1,2}:\d{2}:\d{2}\b'),
+    
+    // Date with time format: "30.07.2007,13:29:17"
+    RegExp(r'\b(\d{1,2}\.\d{1,2}\.\d{4}),\d{1,2}:\d{2}:\d{2}\b'),
+    
+    // MEDIUM PRIORITY: Date-only formats
+    
+    // Day + Month name + Year format: "30Oct2020", "15Dec2023", "1Jan2024"
+    RegExp(r'\b(\d{1,2}(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{4})\b', caseSensitive: false),
+    
     // Short date format: "26/04/15" (dd/mm/yy)
     RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2})\b'),
     
+    // Short date format: "04/26/15" (mm/dd/yy)
+    RegExp(r'\b(\d{1,2}/\d{1,2}/\d{2})\b'),
+    
     // European format: dd/mm/yyyy, dd.mm.yyyy, dd-mm-yyyy
+    RegExp(r'\b(\d{1,2}[\/\.-]\d{1,2}[\/\.-](?:20)?\d{2,4})\b'),
+    
+    // US format: mm/dd/yyyy
+    RegExp(r'\b(\d{1,2}[\/\.-]\d{1,2}[\/\.-](?:20)?\d{2,4})\b'),
+    
+    // ISO format: yyyy-mm-dd, yyyy/mm/dd
+    RegExp(r'\b(\d{4}[\/\.-]\d{1,2}[\/\.-]\d{1,2})\b'),
+    
+    // LOWER PRIORITY: Month name formats
+    
+    // Month name formats with better matching
+    RegExp(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[a-z]*\.?\s+\d{1,2},?\s*\d{4}\b', caseSensitive: false),
+    RegExp(r'\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[a-z]*\.?\s*,?\s*\d{4}\b', caseSensitive: false),
+    
+    // Month name directly followed by day (no space) - like "Nov13,2024"
+    RegExp(r'\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[a-z]*\.?\d{1,2},?\s*\d{4})\b', caseSensitive: false),
+    
+    // Labeled date formats
     RegExp(r'(?:Date|TIME):\s*([A-Za-z]+ \d{1,2},?\s*\d{4})', caseSensitive: false),
-  
-  // Month name formats with better matching
-  RegExp(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[a-z]*\.?\s+\d{1,2},?\s*\d{4}\b', caseSensitive: false),
-  RegExp(r'\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[a-z]*\.?\s*,?\s*\d{4}\b', caseSensitive: false),
-  
-  // European format: dd/mm/yyyy, dd.mm.yyyy, dd-mm-yyyy
-  RegExp(r'\b(\d{1,2}[\/\.-]\d{1,2}[\/\.-](?:20)?\d{2,4})\b'),
-  // US format: mm/dd/yyyy
-  RegExp(r'\b(\d{1,2}[\/\.-]\d{1,2}[\/\.-](?:20)?\d{2,4})\b'),
-  // ISO format: yyyy-mm-dd, yyyy/mm/dd
-  RegExp(r'\b(\d{4}[\/\.-]\d{1,2}[\/\.-]\d{1,2})\b'),
   ];
 
   // Multiple number patterns for different formatting styles
   // FIXED: More precise patterns to avoid partial matches
   final List<RegExp> _numberPatterns = [
 
-    // PRIORITY 1: Currency symbols with amounts (highest priority)
-    RegExp(r'[\$€£¥₹₩₽¢]\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{1,2})\b'), // $154.06, €12.34
-    RegExp(r'[\$€£¥₹₩₽¢]\s*([0-9]{1,6}\.[0-9]{1,2})\b'), // $154.06, €12.34 (simpler)
+    // PRIORITY 1: Currency symbols with amounts (highest priority) - EXCLUDE NEGATIVE
+    RegExp(r'(?<!-)[\$€£¥₹₩₽¢]\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{1,2})\b'), // $154.06, €12.34 (no negative)
+    RegExp(r'(?<!-)[\$€£¥₹₩₽¢]\s*([0-9]{1,6}\.[0-9]{1,2})\b'), // $154.06, €12.34 (simpler, no negative)
     
     RegExp(r'([0-9]{1,3}(?:[. ][0-9]{3})*,[0-9]{1,2})\b'), // 1.234,56 or 1 234,56 or 19,96
   
-  // PRIORITY 2: Complete US decimal format 
+  // PRIORITY 2: Indian number format (2,36,000.00) - HIGHER PRIORITY
+    RegExp(r'([0-9]{1,2}(?:,[0-9]{2})+(?:,[0-9]{3})*\.[0-9]{1,2})(?:\s|$|[^0-9])'), // 2,36,000.00 or 1,23,456.78
+    
+  // PRIORITY 3: Complete US decimal format 
     RegExp(r'([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{1,2})\b'), // 1,234.56 or 12.34
     
     // PRIORITY 3: Simple decimals (but be more specific)
     RegExp(r'(\d{1,6}\.\d{1,2})\b'), // 12.34 (but not part of larger numbers)
-    RegExp(r'(\d{1,6},\d{1,2})\b'), // 12,34 (but not part of larger numbers)
+    RegExp(r'\b(\d{1,6},\d{1,2})\b'), // 12,34 (but not part of larger numbers) - word boundaries to prevent partial matches
     
     // PRIORITY 4: Whole numbers only as last resort (and be restrictive)
     RegExp(r'\b(\d{3,8})\b'),
@@ -294,6 +338,7 @@ class RegexUtil{
   // In optimized_regex_util.dart - Replace findTotalByKeywords method
 AmountMatch? findTotalByKeywords(List<String> lines) {
   print('🔍 ENHANCED: Starting robust total detection with ${lines.length} lines');
+  print('🔍 DEBUG: findTotalByKeywords() CALLED - THIS SHOULD APPEAR IN OUTPUT');
   
   // DEBUG: Log the number patterns being used
   _logNumberPatterns();
@@ -303,6 +348,10 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
   print('=' * 80);
   for (int i = 0; i < lines.length; i++) {
     print('Line $i: "${lines[i]}"');
+    // Special debug for lines containing 233.81
+    if (lines[i].contains('233.81') || lines[i].contains('233,81')) {
+      print('🔍 DEBUG: *** FOUND 233.81 in line $i: "${lines[i]}" ***');
+    }
   }
   print('=' * 80);
   
@@ -333,6 +382,32 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
         
         final candidates = _extractAmountsFromLine(line, i, keyword);
         print('🔍 DEBUG: Extracted ${candidates.length} candidates from line $i');
+        
+        // CRITICAL FIX: If no amounts found on "Total" line, check the next line first
+        if (candidates.isEmpty && keyword == 'TOTAL' && i + 1 < lines.length) {
+          final nextLine = lines[i + 1];
+          print('🔍 ENHANCED: No amounts on "Total" line, checking next line: "$nextLine"');
+          final nextLineCandidates = _extractAmountsFromLine(nextLine, i + 1, 'TOTAL_next_line');
+          candidates.addAll(nextLineCandidates);
+          print('🔍 DEBUG: Found ${nextLineCandidates.length} additional candidates from next line');
+        }
+        
+        // ENHANCED FIX: If still no candidates found, check previous line for currency amounts only
+        if (candidates.isEmpty && keyword == 'TOTAL' && i > 0) {
+          final prevLine = lines[i - 1];
+          print('🔍 ENHANCED: Still no candidates, checking previous line for currency amounts: "$prevLine"');
+          
+          // Only look for currency symbol amounts in previous line (worst case scenario)
+          if (RegExp(r'[\$€£¥₹₩₽¢]\s*\d+[.,]\d{2}').hasMatch(prevLine)) {
+            print('🔍 ENHANCED: Found currency amount in previous line, extracting...');
+            final prevLineCandidates = _extractAmountsFromLine(prevLine, i - 1, 'TOTAL_prev_line_currency');
+            candidates.addAll(prevLineCandidates);
+            print('🔍 DEBUG: Found ${prevLineCandidates.length} additional candidates from previous line');
+          } else {
+            print('🔍 ENHANCED: No currency amounts found in previous line');
+          }
+        }
+        
         for (final candidate in candidates) {
           final positionScore = _calculatePositionScore(i, lines.length);
           final formatScore = _calculateFormatScore(line);
@@ -367,12 +442,42 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
   // If we found explicit totals, return the best one immediately
   if (allCandidates.isNotEmpty) {
     print('🔍 DEBUG: Found ${allCandidates.length} explicit total candidates, selecting best...');
-    final bestExplicit = _selectBestCandidate(allCandidates, lines);
-    if (bestExplicit != null && bestExplicit.confidence > 15.0) {
+    // DEBUG: Print the candidates before early return selection
+    print('🔍 DEBUG: CANDIDATES BEFORE EARLY RETURN SELECTION:');
+    for (int i = 0; i < allCandidates.length && i < 5; i++) {
+      final candidate = allCandidates[i];
+      print('  Early return candidate $i: amount=${candidate.amount}, confidence=${candidate.confidence}, method=${candidate.detectionMethod}');
+    }
+    
+    // CRITICAL FIX: Apply enhanced sorting logic with special handling for Total lines
+    allCandidates.sort((a, b) {
+      // Special case: If both candidates are from Total lines, prioritize by amount size
+      if (a.originalText.toUpperCase().contains('TOTAL') &&
+          b.originalText.toUpperCase().contains('TOTAL') &&
+          a.detectionMethod.contains('explicit_total') &&
+          b.detectionMethod.contains('explicit_total')) {
+        print('🔍 DEBUG: Both candidates from Total lines, prioritizing larger amount: ${a.amount} vs ${b.amount}');
+        return b.amount.compareTo(a.amount); // Larger amount wins for Total lines
+      }
+      
+      // Otherwise, use confidence first, then amount
+      final confidenceCompare = b.confidence.compareTo(a.confidence);
+      if (confidenceCompare != 0) return confidenceCompare;
+      return b.amount.compareTo(a.amount); // If confidence is same, prefer larger amount
+    });
+    
+    print('🔍 DEBUG: CANDIDATES AFTER ENHANCED SORTING:');
+    for (int i = 0; i < allCandidates.length && i < 3; i++) {
+      final candidate = allCandidates[i];
+      print('  Sorted candidate $i: amount=${candidate.amount}, confidence=${candidate.confidence}, method=${candidate.detectionMethod}');
+    }
+    
+    final bestExplicit = allCandidates.first; // Use first candidate after enhanced sorting
+    if (bestExplicit.confidence > 15.0) {
       print('🔍 ENHANCED: Found explicit total with high confidence: $bestExplicit');
       return bestExplicit;
     } else {
-      print('🔍 DEBUG: Best explicit candidate confidence too low: ${bestExplicit?.confidence}');
+      print('🔍 DEBUG: Best explicit candidate confidence too low: ${bestExplicit.confidence}');
     }
   } else {
     print('🔍 DEBUG: No explicit total candidates found, continuing to other strategies...');
@@ -551,7 +656,15 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
           ));
         }
       }
+      
     }
+  }
+  
+  // DEBUG: Print the actual candidates being passed to final selection
+  print('🔍 DEBUG: PASSING ${allCandidates.length} CANDIDATES TO FINAL SELECTION:');
+  for (int i = 0; i < allCandidates.length && i < 5; i++) {
+    final candidate = allCandidates[i];
+    print('  Final selection candidate $i: amount=${candidate.amount}, confidence=${candidate.confidence}, method=${candidate.detectionMethod}');
   }
   
   final finalResult = _selectBestCandidate(allCandidates, lines);
@@ -567,6 +680,11 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
     print('   Confidence: ${finalResult.confidence} (including amount size bonus: $amountSizeScore, visual format bonus: $visualFormatScore, context bonus: $contextScore)');
     print('   Method: ${finalResult.detectionMethod}');
     print('   Line: ${finalResult.lineIndex}');
+    
+    // Special debug for 233.81
+    if (finalResult.amount == 233.81) {
+      print('🔍 DEBUG: *** 233.81 SELECTED AS FINAL RESULT! ***');
+    }
     print('   Text: "${finalResult.originalText}"');
   } else {
     print('❌ FAILED: No total found');
@@ -785,14 +903,37 @@ bool _isObviousItemLine(String line) {
         }
       }
       
+      // CRITICAL FIX: Check for overlapping amounts from same line (Indian format issue)
+      // If this amount is a subset of another amount from same line, skip it
+      if (bestCandidate != null) {
+        final currentBest = bestCandidate;
+        for (final otherCandidate in candidatesForAmount) {
+          if (otherCandidate != currentBest && 
+              otherCandidate.lineIndex == currentBest.lineIndex &&
+              otherCandidate.originalText == currentBest.originalText) {
+            // Same line, check if one amount is subset of another
+            if (currentBest.amount < otherCandidate.amount && 
+                otherCandidate.amount.toString().contains(currentBest.amount.toString())) {
+              print('🔍 DEBUG: Skipping $amount as it\'s a subset of larger amount ${otherCandidate.amount} from same line');
+              bestCandidate = null;
+              break;
+            }
+          }
+        }
+      }
+      
       if (bestCandidate != null) {
         bestCandidates.add(bestCandidate);
         print('🔍 DEBUG: Selected best candidate for amount $amount: $bestCandidate');
       }
     }
     
-    // Sort by confidence (highest first)
-    bestCandidates.sort((a, b) => b.confidence.compareTo(a.confidence));
+    // Sort by confidence (highest first), then by amount (largest first) for same confidence
+    bestCandidates.sort((a, b) {
+      final confidenceCompare = b.confidence.compareTo(a.confidence);
+      if (confidenceCompare != 0) return confidenceCompare;
+      return b.amount.compareTo(a.amount); // If confidence is same, prefer larger amount
+    });
     
     print('🔍 DEBUG: Final deduplicated candidates: ${bestCandidates.length}');
     for (int i = 0; i < bestCandidates.length; i++) {
@@ -808,55 +949,62 @@ bool _isObviousItemLine(String line) {
     
     // DEBUG: Log every line being processed for amount extraction
     print('🔍 DEBUG: Extracting amounts from line $lineIndex: "$line" (method: $method)');
-    // FIRST: Try to find complete decimal amounts (highest priority)
-    final completeDecimalPatterns = [
-      RegExp(r'([0-9]{1,6},[0-9]{2})\b'), // European: 19,96
-      RegExp(r'([0-9]{1,6}\.[0-9]{2})\b'), // US: 19.96
-    ];
-    bool foundCompleteDecimal = false;
-    for (final pattern in completeDecimalPatterns) {
-      final matches = pattern.allMatches(line);
-      for (final match in matches) {
-        final numberText = match.group(1)!;
-        
-        if (_shouldExcludeNumber(line, match.start, match.end)) {
-          continue;
-        }
-        // NEW: Check if this is a partial number
-        if (_isPartialNumber(numberText, line)) {
-          print('🔍 DEBUG: Rejected partial number "$numberText" from line: "$line"');
-          continue;
-        }
-        
-        final amount = _parseMoneyString(numberText);
-        if (amount != null && _isValidAmount(amount, line)) {
-          final currency = _detectCurrencyInLine(line);
-          candidates.add(AmountMatch(
-            amount,
-            currency: currency,
-            lineIndex: lineIndex,
-            confidence: 10.0, // Base confidence for complete decimals
-            detectionMethod: method,
-            originalText: line,
-          ));
-          foundCompleteDecimal = true;
-          print('🔍 DEBUG: Found complete decimal: $amount from "$numberText"');
-          
-          // Special debug for 154.06
-          if (amount == 154.06) {
-            print('🔍 DEBUG: SUCCESS! 154.06 was extracted and validated!');
-          }
-        } else if (amount == 154.06) {
-          print('🔍 DEBUG: 154.06 was parsed but failed validation!');
-        }
-      }
-    }
+    // DISABLED: Complete decimal patterns interfere with Indian number format
+    // final completeDecimalPatterns = [
+    //   RegExp(r'(?<!-)(?:^|\s)([0-9]{1,6},[0-9]{2})(?:\s|$|[^0-9])'), // European: 19,96 (no negative) - must be standalone
+    //   RegExp(r'(?<!-)(?:^|\s)([0-9]{1,6}\.[0-9]{2})(?:\s|$|[^0-9])'), // US: 19.96 (no negative) - must be standalone
+    // ];
+    // bool foundCompleteDecimal = false; // DISABLED
+    // DISABLED: Complete decimal patterns interfere with Indian number format
+    // for (final pattern in completeDecimalPatterns) {
+    //   final matches = pattern.allMatches(line);
+    //   for (final match in matches) {
+    //     final numberText = match.group(1)!;
+    //     
+    //     if (_shouldExcludeNumber(line, match.start, match.end)) {
+    //       continue;
+    //     }
+    //     // NEW: Check if this is a partial number
+    //     if (_isPartialNumber(numberText, line)) {
+    //       print('🔍 DEBUG: Rejected partial number "$numberText" from line: "$line"');
+    //       continue;
+    //     }
+    //     
+    //     final amount = _parseMoneyString(numberText);
+    //     if (amount != null && _isValidAmount(amount, line)) {
+    //       final currency = _detectCurrencyInLine(line);
+    //       candidates.add(AmountMatch(
+    //         amount,
+    //         currency: currency,
+    //         lineIndex: lineIndex,
+    //         confidence: 10.0, // Base confidence for complete decimals
+    //         detectionMethod: method,
+    //         originalText: line,
+    //       ));
+    //       foundCompleteDecimal = true;
+    //       print('🔍 DEBUG: Found complete decimal: $amount from "$numberText"');
+    //       
+    //       // Special debug for 233.81
+    //       if (amount == 233.81) {
+    //         print('🔍 DEBUG: SUCCESS! 233.81 was extracted and validated!');
+    //         print('🔍 DEBUG: Currency: $currency, Line: $lineIndex, Method: $method');
+    //       }
+    //       
+    //       // Special debug for 154.06
+    //       if (amount == 154.06) {
+    //         print('🔍 DEBUG: SUCCESS! 154.06 was extracted and validated!');
+    //       }
+    //     } else if (amount == 154.06) {
+    //       print('🔍 DEBUG: 154.06 was parsed but failed validation!');
+    //     }
+    //   }
+    // }
     
-    // If we found complete decimals, don't look for partial numbers
-    if (foundCompleteDecimal) {
-      print('🔍 DEBUG: Found complete decimals, skipping partial number detection');
-      return _deduplicateAndPrioritizeCandidates(candidates);
-    }
+    // DISABLED: Complete decimal patterns interfere with Indian number format
+    // if (foundCompleteDecimal) {
+    //   print('🔍 DEBUG: Found complete decimals, skipping partial number detection');
+    //   return _deduplicateAndPrioritizeCandidates(candidates);
+    // }
     // Try each number pattern
     for (int patternIndex = 0; patternIndex < _numberPatterns.length; patternIndex++) {
       final pattern = _numberPatterns[patternIndex];
@@ -870,6 +1018,16 @@ bool _isObviousItemLine(String line) {
         // Special debug for currency patterns
         if (patternIndex == 0 || patternIndex == 1) {
           print('🔍 DEBUG: Currency pattern $patternIndex matched: "$numberText" from line: "$line"');
+        }
+        
+        // Special debug for Indian pattern
+        if (patternIndex == 3) {
+          print('🔍 DEBUG: INDIAN PATTERN $patternIndex matched: "$numberText" from line: "$line"');
+        }
+        
+        // Special debug for simple decimal pattern
+        if (patternIndex == 6) {
+          print('🔍 DEBUG: SIMPLE DECIMAL PATTERN $patternIndex matched: "$numberText" from line: "$line"');
         }
         
         // Skip if it matches exclude patterns
@@ -921,6 +1079,15 @@ bool _isObviousItemLine(String line) {
     
     print('🔍 DEBUG: Parsing money string: "$originalS" -> "$s"');
     
+    // CRITICAL FIX: Remove currency symbols before parsing
+    s = s.replaceAll(RegExp(r'[\$€£¥₹₩₽¢]'), '');
+    
+    // CRITICAL FIX: Reject negative amounts immediately
+    if (s.startsWith('-') || s.startsWith('−') || s.contains('€-') || s.contains('\$-') || s.contains('£-') || s.contains('¥-')) {
+      print('🔍 DEBUG: Rejected negative amount: "$originalS"');
+      return null;
+    }
+    
     // Handle different decimal separators
     if (s.contains(',') && s.contains('.')) {
       final lastComma = s.lastIndexOf(',');
@@ -941,9 +1108,20 @@ bool _isObviousItemLine(String line) {
       final digitsAfterComma = s.substring(commaIndex + 1).length;
       final digitsBefore = s.substring(0, commaIndex);
 
-      
-      
-      if (digitsAfterComma == 2 && !digitsBefore.contains(',') && 
+      // ENHANCED: Check for Indian number format (2,36,000.00)
+      if (s.contains('.') && s.contains(',')) {
+        // Has both comma and dot - check if it's Indian format
+        final dotIndex = s.lastIndexOf('.');
+        if (dotIndex > commaIndex && digitsAfterComma == 2) {
+          // Format: 2,36,000.00 - Indian thousands separator
+          s = s.replaceAll(',', '');
+          print('🔍 DEBUG: Indian number format detected, converted to: "$s"');
+        } else {
+          // Format: 1,234.56 - US thousands separator
+          s = s.replaceAll(',', '');
+          print('🔍 DEBUG: US thousands format detected, converted to: "$s"');
+        }
+      } else if (digitsAfterComma == 2 && !digitsBefore.contains(',') && 
       !digitsBefore.contains('.') &&
       digitsBefore.length <= 6) {
         // Likely decimal: 12,34
@@ -968,6 +1146,12 @@ bool _isObviousItemLine(String line) {
 
   // Enhanced validation with more sophisticated rules
   bool _isValidAmount(double amount, String line) {
+    // CRITICAL FIX: Reject negative amounts immediately
+    if (amount < 0) {
+      print('🔍 DEBUG: Rejected negative amount: $amount from line: "$line"');
+      return false;
+    }
+    
     // Basic range check
     if (amount <= 0 || amount > 1000000) {
       return false;
@@ -979,8 +1163,23 @@ bool _isObviousItemLine(String line) {
       print('🔍 DEBUG: Amount: $amount, Upper line: "${line.toUpperCase()}"');
     }
     
+    // Special debug for 233.81
+    if (amount == 233.81 || line.contains('233.81') || line.contains('233,81')) {
+      print('🔍 DEBUG: Found 233.81 in line: "$line"');
+      print('🔍 DEBUG: Amount: $amount, Upper line: "${line.toUpperCase()}"');
+    }
+    
     // Check context for invalid patterns
     final upperLine = line.toUpperCase();
+    
+    // CRITICAL FIX: Check for negative amount context
+    if (upperLine.contains('TOTALDUE') && upperLine.contains('-') || 
+        upperLine.contains('PAYMENTS:') && upperLine.contains('-') ||
+        upperLine.contains('REFUND') || upperLine.contains('CREDIT') ||
+        upperLine.contains('DISCOUNT') || upperLine.contains('DEDUCTION')) {
+      print('🔍 DEBUG: Rejected amount $amount due to negative context in line: "$line"');
+      return false;
+    }
     
     // Skip obvious non-amounts - be more specific to avoid false rejections
     final invalidContexts = [
@@ -1279,7 +1478,50 @@ bool _isObviousItemLine(String line) {
     for (final currency in _currencyPatterns.keys) {
       for (final pattern in _currencyPatterns[currency]!) {
         if (line.contains(pattern) || upperLine.contains(pattern.toUpperCase())) {
-          return currency;
+          // Only return currency if it's associated with a number
+          // Check if there's a number within 10 characters of the currency symbol
+          final patternIndex = upperLine.indexOf(pattern.toUpperCase());
+          if (patternIndex != -1) {
+            final beforePattern = line.substring(0, patternIndex);
+            final afterPattern = line.substring(patternIndex + pattern.length);
+            final context = '$beforePattern $afterPattern';
+            
+            // Look for numbers in the context
+            if (RegExp(r'\d').hasMatch(context)) {
+              // Special handling for currency symbols (€, $, £, etc.) - they can be directly attached to numbers
+              final isCurrencySymbol = ['€', '\$', '£', '¥', '₹', '₽', '₩'].contains(pattern);
+              
+              if (isCurrencySymbol) {
+                // For currency symbols, check if they're directly attached to a number
+                final afterIndex = patternIndex + pattern.length;
+                final afterChar = afterIndex < line.length ? line[afterIndex] : ' ';
+                
+                // Currency symbol should be directly followed by a number (like €2.99, $5.00)
+                if (RegExp(r'\d').hasMatch(afterChar)) {
+                  print('🔍 DEBUG: Found currency symbol $currency directly attached to number: "$line"');
+                  return currency;
+                }
+              }
+              
+              // For currency codes (USD, EUR, CAD, etc.), check word boundaries
+              final beforeChar = patternIndex > 0 ? line[patternIndex - 1] : ' ';
+              final afterIndex = patternIndex + pattern.length;
+              final afterChar = afterIndex < line.length ? line[afterIndex] : ' ';
+              
+              // Currency codes should be surrounded by non-alphanumeric characters (word boundaries)
+              final isWordBoundary = !RegExp(r'[a-zA-Z0-9]').hasMatch(beforeChar) && 
+                                   !RegExp(r'[a-zA-Z0-9]').hasMatch(afterChar);
+              
+              if (isWordBoundary) {
+                print('🔍 DEBUG: Found currency code $currency with number context and word boundary: "$line"');
+                return currency;
+              } else {
+                print('🔍 DEBUG: Found currency code $currency but it\'s part of a larger word: "$line" (before: "$beforeChar", after: "$afterChar")');
+              }
+            } else {
+              print('🔍 DEBUG: Found currency $currency but no number context: "$line"');
+            }
+          }
         }
       }
     }
@@ -1380,21 +1622,48 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
     return bestReceiptTotal;
   }
   
-  // Sort by confidence (highest first)
-  candidates.sort((a, b) => b.confidence.compareTo(a.confidence));
-  
+   // CRITICAL FIX: Prioritize "Total" over "SubTotal" by confidence
+   // Sort by confidence (highest first), then by amount (largest first) for same confidence
+   candidates.sort((a, b) {
+     final confidenceCompare = b.confidence.compareTo(a.confidence);
+     if (confidenceCompare != 0) return confidenceCompare;
+     return b.amount.compareTo(a.amount); // If confidence is same, prefer larger amount
+   });
+   
   // Log top candidates
   for (var i = 0; i < candidates.length && i < 3; i++) {
     print('🔍 ENHANCED: Candidate ${i + 1}: ${candidates[i]}');
+    // Special debug for 233.81
+    if (candidates[i].amount == 233.81) {
+      print('🔍 DEBUG: *** 233.81 FOUND in candidates at position ${i + 1} ***');
+    }
   }
-  
-  final best = candidates.first;
-  
-  // Additional validation: if best candidate is from explicit total keywords, trust it
-  if (best.detectionMethod.startsWith('explicit_total')) {
-    print('🔍 ENHANCED: Using explicit total: $best');
-    return best;
-  }
+   
+   final best = candidates.first;
+   
+   // CRITICAL FIX: Check if we have both "Total" and "SubTotal" candidates
+   final totalCandidates = candidates.where((c) => 
+       c.detectionMethod.contains('TOTAL') && !c.detectionMethod.contains('SUB')).toList();
+   final subtotalCandidates = candidates.where((c) => 
+       c.detectionMethod.contains('SUBTOTAL') || c.detectionMethod.contains('SUB-TOTAL')).toList();
+   
+   if (totalCandidates.isNotEmpty && subtotalCandidates.isNotEmpty) {
+     // If we have both, ALWAYS prefer "Total" over "SubTotal"
+     final bestTotal = totalCandidates.first;
+     final bestSubtotal = subtotalCandidates.first;
+     
+     print('🔍 ENHANCED: Found both TOTAL and SUBTOTAL candidates:');
+     print('   TOTAL: $bestTotal');
+     print('   SUBTOTAL: $bestSubtotal');
+     print('🔍 ENHANCED: Selecting TOTAL over SUBTOTAL (higher priority)');
+     return bestTotal;
+   }
+   
+   // Additional validation: if best candidate is from explicit total keywords, trust it
+   if (best.detectionMethod.startsWith('explicit_total')) {
+     print('🔍 ENHANCED: Using explicit total: $best');
+     return best;
+   }
   
   // FIX: ULTRA-AGGRESSIVE logic for selecting the best total
   // ALWAYS prefer larger amounts over smaller ones (real-world rule: totals are larger)
@@ -1500,6 +1769,8 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
   // Handle month names first
   if (RegExp(r'[A-Za-z]').hasMatch(s)) {
     final monthFormats = [
+      'dMMMyyyy',      // 30Oct2020, 15Dec2023, 1Jan2024
+      'MMMd,yyyy',     // Nov13,2024, Dec25,2023
       'MMMM d, yyyy',  // April 5, 2024
       'MMM d, yyyy',   // Apr 5, 2024
       'd MMMM yyyy',   // 5 April 2024
@@ -1517,6 +1788,27 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
       } catch (e) {
         // Continue to next format
       }
+    }
+  }
+  
+  // Handle 2-digit years first (convert to 4-digit)
+  final twoDigitYearPattern = RegExp(r'^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2})$');
+  final twoDigitMatch = twoDigitYearPattern.firstMatch(s);
+  if (twoDigitMatch != null) {
+    final month = int.parse(twoDigitMatch.group(1)!);
+    final day = int.parse(twoDigitMatch.group(2)!);
+    final year = int.parse(twoDigitMatch.group(3)!);
+    
+    // Convert 2-digit year to 4-digit year
+    // Years 00-30 are assumed to be 2000-2030, years 31-99 are assumed to be 1931-1999
+    final fullYear = year <= 30 ? 2000 + year : 1900 + year;
+    
+    try {
+      final date = DateTime(fullYear, month, day);
+      print('🔍 ENHANCED: Successfully parsed 2-digit year "$s" as $date');
+      return date;
+    } catch (e) {
+      print('🔍 ENHANCED: Failed to parse 2-digit year "$s": $e');
     }
   }
   
@@ -1631,67 +1923,33 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
   // Comprehensive currency detection with context
   String? detectCurrency(String text) {
     print('🔍 ENHANCED: Starting comprehensive currency detection');
+    print('🔍 ENHANCED: Text length: ${text.length}');
+    print('🔍 ENHANCED: Text preview: "${text.length > 200 ? text.substring(0, 200) + "..." : text}"');
     
     // Try line-by-line detection first for better context
     final lines = text.split('\n');
-    for (final line in lines) {
+    print('🔍 ENHANCED: Analyzing ${lines.length} lines for currency');
+    
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      print('🔍 ENHANCED: Checking line $i: "$line"');
       final currency = _detectCurrencyInLine(line);
-      if (currency != null && line.contains(RegExp(r'\d'))) {
-        print('🔍 ENHANCED: Found currency $currency in line with numbers');
-        return currency;
+      if (currency != null) {
+        print('🔍 ENHANCED: Found currency $currency in line $i');
+        if (line.contains(RegExp(r'\d'))) {
+          print('🔍 ENHANCED: Currency $currency has number context, returning it');
+          return currency;
+        } else {
+          print('🔍 ENHANCED: Currency $currency found but no number context, continuing search');
+        }
       }
     }
     
+    print('🔍 ENHANCED: No currency found in individual lines, trying full text detection');
     // Fallback to full text detection
-    return _detectCurrencyInLine(text);
+    final fullTextCurrency = _detectCurrencyInLine(text);
+    print('🔍 ENHANCED: Full text currency detection result: $fullTextCurrency');
+    return fullTextCurrency;
   }
 }
-bool _isPartialNumber(String numberText, String fullLine) {
-  // Check if this number appears to be part of a larger decimal number
-  final numberIndex = fullLine.indexOf(numberText);
-  if (numberIndex == -1) return false;
-  
-  final beforeChar = numberIndex > 0 ? fullLine[numberIndex - 1] : '';
-  final afterIndex = numberIndex + numberText.length;
-  final afterChar = afterIndex < fullLine.length ? fullLine[afterIndex] : '';
-  
-  // Only consider it partial if it's clearly part of a larger number
-  // Check if it's part of a decimal number (but be more specific)
-  if (beforeChar == ',' || beforeChar == '.') {
-    // Check if this is a thousands separator (like 1,234.56)
-    if (beforeChar == ',' && numberText.length <= 3) {
-      return true; // Part of thousands separator
-    }
-    // Check if this is a decimal part (like 123.45 where we found "45")
-    if (beforeChar == '.' && numberText.length <= 2) {
-      return true; // Part of decimal
-    }
-  }
-  
-  if (afterChar == ',' || afterChar == '.') {
-    // Check if this is a thousands separator (like 1,234.56)
-    if (afterChar == ',' && numberText.length <= 3) {
-      return true; // Part of thousands separator
-    }
-    // Check if this is a decimal part (like 123.45 where we found "123")
-    if (afterChar == '.' && numberText.length <= 3) {
-      return true; // Part of decimal
-    }
-  }
-  
-  // Check if there's a decimal number in the same line that contains this
-  // But only if the number is small (likely a partial)
-  if (numberText.length <= 2) {
-    final decimalPattern = RegExp(r'\d+[,.]\d+');
-    final decimalMatches = decimalPattern.allMatches(fullLine);
-    
-    for (final match in decimalMatches) {
-      final decimalText = match.group(0)!;
-      if (decimalText.contains(numberText) && decimalText != numberText) {
-        return true; // This small number is part of a larger decimal
-      }
-    }
-  }
-  
-  return false;
-}
+// REMOVED: _isPartialNumber function - no longer used

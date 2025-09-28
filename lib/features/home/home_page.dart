@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth/providers/auth_provider.dart';
 import 'package:flutter/services.dart';
-import 'dart:math' as math;
 import 'package:go_router/go_router.dart';
 import './dynamic_expense_modal.dart';
-import '../camera/camera_page.dart';
 import '../storage/bill/bill_provider.dart';
 import '../storage/models/bill_model.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/responsive_layout.dart';
+import '../../core/widgets/modern_widgets.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   final double growthPercentage;
@@ -22,12 +23,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   int _selectedIndex = 0;
   bool _isMenuOpen = false;
-  String? _lastTappedItem;
   String _selectedCurrency = 'USD';
-  
-  final List<String> _availableCurrencies = [
-    'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'BRL'
-  ];
 
   void _toggleMenu() {
     setState(() {
@@ -353,78 +349,127 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildWelcomeCard() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF667eea).withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Welcome back!',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'You\'ve saved ${widget.achievementsCount} receipts this month',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white70,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Text(
-                    'Keep it up! 🎉',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+    return ResponsiveContainer(
+      child: GradientCard(
+        gradient: AppTheme.secondaryGradient,
+        padding: EdgeInsets.all(context.responsivePadding),
+        margin: EdgeInsets.symmetric(horizontal: context.responsivePadding),
+        child: ResponsiveLayout(
+          mobile: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ResponsiveText(
+                          'Welcome back!',
+                          style: TextStyle(
+                            fontSize: context.isMobile ? 20 : 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ResponsiveText(
+                          'You\'ve saved ${widget.achievementsCount} receipts this month',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  Container(
+                    width: context.isMobile ? 60 : 80,
+                    height: context.isMobile ? 60 : 80,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.emoji_events,
+                      color: Colors.white,
+                      size: context.isMobile ? 30 : 40,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
                 ),
-              ],
-            ),
+                child: const Text(
+                  'Keep it up! 🎉',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.emoji_events,
-              color: Colors.white,
-              size: 40,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ResponsiveText(
+                      'Welcome back!',
+                      style: TextStyle(
+                        fontSize: context.isMobile ? 20 : 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ResponsiveText(
+                      'You\'ve saved ${widget.achievementsCount} receipts this month',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'Keep it up! 🎉',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: context.isMobile ? 60 : 80,
+                height: context.isMobile ? 60 : 80,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.emoji_events,
+                  color: Colors.white,
+                  size: context.isMobile ? 30 : 40,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -527,48 +572,41 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildQuickActions(int achievementsCount) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
+    return ResponsiveContainer(
+      child: ResponsiveGridView(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        spacing: context.responsiveCardSpacing,
+        runSpacing: context.responsiveCardSpacing,
         children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const CameraPage(),
-                  ),
-                );
-              },
-              child: _buildActionCard(
-                'Scan Receipt',
-                '${achievementsCount} scanned',
-                Icons.camera_alt_rounded,
-                [const Color(0xFF4facfe), const Color(0xFF00f2fe)],
+          AnimatedCard(
+            onTap: () => context.go('/scan'),
+            child: _buildActionCard(
+              'Scan Receipt',
+              '$achievementsCount scanned',
+              Icons.camera_alt_rounded,
+              AppTheme.primaryGradient,
+            ),
+          ),
+          AnimatedCard(
+            onTap: () => _showAchievements(),
+            child: _buildActionCard(
+              'Achievements',
+              '$achievementsCount unlocked',
+              Icons.emoji_events_rounded,
+              const LinearGradient(
+                colors: [Color(0xFFf59e0b), Color(0xFFd97706)],
               ),
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: _buildActionCard(
-              'Achievements',
-              '${achievementsCount} unlocked',
-              Icons.emoji_events_rounded,
-              [const Color(0xFFf59e0b), const Color(0xFFd97706)],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                context.go('/bills');
-              },
+          AnimatedCard(
+            onTap: () => context.go('/bills'),
             child: _buildActionCard(
               'Storage',
               '245 receipts',
               Icons.folder_rounded,
-              [const Color(0xFF6366f1), const Color(0xFF4f46e5)],
+              const LinearGradient(
+                colors: [Color(0xFF6366f1), Color(0xFF4f46e5)],
               ),
             ),
           ),
@@ -577,41 +615,133 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildActionCard(String title, String subtitle, IconData icon, List<Color> colors) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+  void _showAchievements() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: AppTheme.largeBorderRadius,
+        ),
+        title: const Text(
+          '🏆 Achievements',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildAchievementTile('First Receipt', 'Scanned your first receipt!', true),
+            _buildAchievementTile('Receipt Pro', 'Scanned 10 receipts', widget.achievementsCount >= 10),
+            _buildAchievementTile('Organization Master', 'Saved 50 receipts', widget.achievementsCount >= 50),
+            _buildAchievementTile('Receipt Legend', 'Saved 100 receipts', widget.achievementsCount >= 100),
+          ],
+        ),
+        actions: [
+          ModernButton(
+            text: 'Close',
+            onPressed: () => Navigator.pop(context),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAchievementTile(String title, String description, bool unlocked) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: unlocked ? AppTheme.successColor.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        borderRadius: AppTheme.smallBorderRadius,
+        border: Border.all(
+          color: unlocked ? AppTheme.successColor.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            unlocked ? Icons.check_circle : Icons.lock,
+            color: unlocked ? AppTheme.successColor : Colors.grey,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: unlocked ? Colors.black87 : Colors.grey,
+                  ),
+                ),
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: unlocked ? Colors.black54 : Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard(String title, String subtitle, IconData icon, Gradient gradient) {
+    return Container(
+      padding: EdgeInsets.all(context.responsivePadding),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: AppTheme.largeBorderRadius,
+        boxShadow: AppTheme.cardShadow,
+      ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: context.isMobile ? 40 : 48,
+            height: context.isMobile ? 40 : 48,
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: colors),
-              borderRadius: BorderRadius.circular(16),
+              gradient: gradient,
+              borderRadius: AppTheme.mediumBorderRadius,
+              boxShadow: [
+                BoxShadow(
+                  color: gradient.colors.first.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            child: Icon(icon, color: Colors.white, size: 24),
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: context.isMobile ? 20 : 24,
+            ),
           ),
-          const SizedBox(height: 12),
-          Text(
+          ResponsiveSpacer(height: context.isMobile ? 8 : 12),
+          ResponsiveText(
             title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: context.isMobile ? 14 : 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
             textAlign: TextAlign.center,
+          ),
+          ResponsiveSpacer(height: context.isMobile ? 2 : 4),
+          ResponsiveText(
+            subtitle,
+            style: TextStyle(
+              fontSize: context.isMobile ? 10 : 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -731,20 +861,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       print('🔍 MAGIC HOME: Menu item "$label" tap up detected!');
     },
     onTap: () {
-      print('🔍 MAGIC HOME: Menu item "$label" tapped!');
-      setState(() {
-        _lastTappedItem = label;
-      });
-      print('🔍 MAGIC HOME: About to call onTap callback...');
-      print('🔍 MAGIC HOME: onTap callback type: ${onTap.runtimeType}');
-      
-      try {
-        print('🔍 MAGIC HOME: Executing onTap callback now...');
-        onTap();
-        print('🔍 MAGIC HOME: onTap callback completed successfully');
-      } catch (e) {
-        print('🔍 MAGIC HOME: ERROR in onTap callback: $e');
-      }
+      onTap();
     },
     child: Container(
       width: size,        // Use the size parameter
@@ -787,7 +904,6 @@ class _HomePageState extends ConsumerState<HomePage> {
 }
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authControllerProvider);
         final screenWidth = MediaQuery.of(context).size.width;
         final screenHeight = MediaQuery.of(context).size.height;
         final bottomPadding = MediaQuery.of(context).padding.bottom;
@@ -834,70 +950,53 @@ class _HomePageState extends ConsumerState<HomePage> {
             ],
           ),
           // Remove floatingActionButton completely
-          bottomNavigationBar: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.2),
-                  blurRadius: 10,
-                  offset: const Offset(0, -5),
+          bottomNavigationBar: ModernBottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: (index) {
+              setState(() {
+                _selectedIndex = index;
+              });
+              switch (index) {
+                case 0:
+                  context.go('/home');
+                  break;
+                case 1:
+                  context.go('/analysis');
+                  break;
+                case 2:
+                  context.go('/scan');
+                  break;
+                case 3:
+                  context.go('/bills');
+                  break;
+                case 4:
+                  context.go('/settings');
+                  break;
+              }
+            },
+            items: const [
+              ModernBottomNavigationBarItem(
+                icon: Icons.home,
+                label: 'Home',
+              ),
+              ModernBottomNavigationBarItem(
+                icon: Icons.analytics,
+                label: 'Analysis',
+              ),
+              ModernBottomNavigationBarItem(
+                icon: Icons.camera_alt,
+                label: 'Scan',
+              ),
+              ModernBottomNavigationBarItem(
+                icon: Icons.folder,
+                label: 'Storage',
+              ),
+              ModernBottomNavigationBarItem(
+                icon: Icons.person,
+                label: 'Profile',
               ),
             ],
           ),
-            child: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: const Color(0xFF16213e),
-              elevation: 0,
-              currentIndex: _selectedIndex,
-              selectedItemColor: const Color(0xFF4facfe),
-              unselectedItemColor: Colors.grey[600],
-              onTap: (index) {
-                setState(() {
-                  _selectedIndex = index;
-                });
-                switch (index) {
-                  case 0:
-                    context.go('/home');
-                    break;
-                  case 1:
-                    context.go('/analysis');
-                    break;
-                  case 2:
-                    context.go('/scan');
-                    break;
-                  case 3:
-                    context.go('/bills');
-                    break;
-                  case 4:
-                    context.go('/settings');
-                    break;
-                }
-              },
-              items: const [
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.home),
-                  label: 'Home',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.analytics),
-                  label: 'Analysis',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.camera_alt),
-                  label: 'Scan',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.folder),
-                  label: 'Storage',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.person),
-                  label: 'Profile',
-                ),
-              ],
-        ),
-      ),
     );
   }
 //   @override

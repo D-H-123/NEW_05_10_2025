@@ -2,6 +2,7 @@
 import '../i_ocr_service.dart';
 import 'helpers/regex_util.dart';
 import 'helpers/line_heuristics.dart';
+import 'helpers/chain_database.dart';
 
 class ParsedReceipt {
   final String? vendor;
@@ -102,8 +103,17 @@ class ReceiptParser {
 
     // Totals detection: use enhanced keyword-based detection with fallback
     print('🔍 MAGIC PARSER: Starting total detection...');
-    final totalResult = _rx.findTotalByKeywords(lines);
-    final total = totalResult?.amount;
+    AmountMatch? totalResult;
+    double? total;
+    try {
+      totalResult = _rx.findTotalByKeywords(lines);
+      total = totalResult?.amount;
+      print('🔍 MAGIC PARSER: findTotalByKeywords() completed successfully');
+    } catch (e, stackTrace) {
+      print('🔍 ERROR: Exception in findTotalByKeywords(): $e');
+      print('🔍 ERROR: Stack trace: $stackTrace');
+      total = null;
+    }
     final currencyFromTotal = totalResult?.currency ?? currency;
     print('🔍 MAGIC PARSER: Detected total: $total');
     print('🔍 MAGIC PARSER: Currency from total: "$currencyFromTotal"');
@@ -120,17 +130,25 @@ class ReceiptParser {
     final items = _heuristics.extractLineItems(lines, linesPositional);
     print('🔍 MAGIC PARSER: Extracted ${items.length} line items');
 
-    // Category inference: by merchant name first, then fallback by keywords in text
+    // Category inference: by chain database first, then fallback by keywords in text
     String? category;
     if (vendor != null) {
-      final vUp = vendor.toUpperCase();
-      if (vUp.contains('WALMART')) category = 'Groceries';
-      if (vUp.contains('TESCO')) category = 'Groceries';
-      if (vUp.contains('SHELL') || vUp.contains('BP')) category = 'Transport';
-      if (vUp.contains('MCDONALD') || vUp.contains('STARBUCKS')) category = 'Food & Dining';
+      // Try chain database first (most accurate)
+      category = ChainDatabase.getCategory(vendor);
+      print('🔍 MAGIC PARSER: Chain database category for "$vendor": "$category"');
+      
+      // Fallback to heuristic category detection
+      if (category == null) {
+        final vUp = vendor.toUpperCase();
+        if (vUp.contains('WALMART')) category = 'Groceries';
+        if (vUp.contains('TESCO')) category = 'Groceries';
+        if (vUp.contains('SHELL') || vUp.contains('BP')) category = 'Transport';
+        if (vUp.contains('MCDONALD') || vUp.contains('STARBUCKS')) category = 'Food & Dining';
+        print('🔍 MAGIC PARSER: Heuristic category for "$vendor": "$category"');
+      }
     }
     category ??= _rx.inferCategoryFromText(normalized);
-    print('🔍 MAGIC PARSER: Detected category: "$category"');
+    print('🔍 MAGIC PARSER: Final detected category: "$category"');
 
     final result = ParsedReceipt(
       vendor: vendor,

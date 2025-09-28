@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
-import 'package:smart_receipt/features/storage/bill/bill_page.dart';
-import 'package:smart_receipt/features/settings/settings_page.dart';
-import 'package:smart_receipt/features/home/home_page.dart';
+import '../../core/widgets/modern_widgets.dart';
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -737,37 +735,9 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   }
 
   Widget _buildBottomNavigationBar() {
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      backgroundColor: const Color(0xFF16213e),
-      selectedItemColor: const Color(0xFF4facfe),
-      unselectedItemColor: Colors.grey[600],
+    return ModernBottomNavigationBar(
       currentIndex: 1, // Analysis is active
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.home),
-          label: 'Home',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.analytics),
-          label: 'Analysis',
-        ),
-        BottomNavigationBarItem(
-              icon: Icon(Icons.camera_alt),
-              label: 'Scan',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.folder),
-          label: 'Storage',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person),
-          label: 'Profile',
-        ),
-      ],
       onTap: (index) {
-        Widget destination = const AnalysisPage() as Widget;
-
         switch (index) {
           case 0:
             context.go('/home');
@@ -785,12 +755,29 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
             context.go('/settings');
             break;
         }
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => destination),
-        );
       },
+      items: const [
+        ModernBottomNavigationBarItem(
+          icon: Icons.home,
+          label: 'Home',
+        ),
+        ModernBottomNavigationBarItem(
+          icon: Icons.analytics,
+          label: 'Analysis',
+        ),
+        ModernBottomNavigationBarItem(
+          icon: Icons.camera_alt,
+          label: 'Scan',
+        ),
+        ModernBottomNavigationBarItem(
+          icon: Icons.folder,
+          label: 'Storage',
+        ),
+        ModernBottomNavigationBarItem(
+          icon: Icons.person,
+          label: 'Profile',
+        ),
+      ],
     );
   }
 }

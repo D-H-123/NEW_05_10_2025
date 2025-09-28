@@ -8,6 +8,12 @@ import 'package:image/image.dart' as img;
 import '../../core/services/image_preprocessing_service.dart';
 import '../../core/services/document_scanner_service.dart';
 import '../../core/services/ocr/mlkit_ocr_service.dart';
+import '../../core/widgets/modern_widgets.dart';
+import '../../core/widgets/user_friendly_loading.dart';
+import '../../core/widgets/camera_guidance.dart';
+import '../../core/widgets/simple_edge_detection.dart';
+import '../../core/widgets/processing_success.dart';
+import '../../core/services/simple_edge_detection_service.dart';
 import 'pre_scan_instruction_modal.dart';
 
 class CameraPage extends StatefulWidget {
@@ -26,6 +32,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   double? _detectedTotal;
   String? _detectedCurrency;
   DateTime? _detectedDate;
+  String? _detectedCategory;
   
   // New state variables for edge detection and cropping
   bool _isProcessingImage = false;
@@ -56,6 +63,11 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   
   // OCR completion tracking
   bool _isOcrCompleted = false;
+  
+  // User-friendly processing state
+  int _currentProcessingStep = 0;
+  String _currentProcessingMessage = 'Scanning your receipt...';
+  double _processingProgress = 0.0;
 
   @override
   void initState() {
@@ -87,6 +99,17 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       print('✅ ML Kit Document Scanner ready');
     } catch (e) {
       print('❌ ML Kit initialization failed: $e');
+    }
+  }
+
+  /// Update processing state with user-friendly messages
+  void _updateProcessingState(int step, String message, double progress) {
+    if (mounted) {
+      setState(() {
+        _currentProcessingStep = step;
+        _currentProcessingMessage = message;
+        _processingProgress = progress;
+      });
     }
   }
 
@@ -359,25 +382,25 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     });
     
     try {
-      // Use enhanced edge detection that tries ML Kit first
-      print('🔍 GALLERY ENHANCED: Using enhanced edge detection...');
-      final detectedCorners = await _mlKitService.detectDocumentCorners(imageFile);
-      
-      // Get image dimensions for proper corner scaling
-      final bytes = await imageFile.readAsBytes();
-      final image = img.decodeImage(bytes);
-      
-      if (image == null) {
-        throw Exception('Failed to decode image');
-      }
+      // Use simple edge detection that always returns 4 corners
+      print('🔍 GALLERY ENHANCED: Using simple edge detection with guaranteed 4 corners...');
+      final detectedCorners = await SimpleEdgeDetectionService.detectDocumentEdges(imageFile);
       
       List<Offset> cornersToUse;
       
-      if (detectedCorners != null && detectedCorners.length == 4) {
+      if (detectedCorners.length == 4) {
         print('✅ GALLERY ENHANCED: Enhanced detection found ${detectedCorners.length} corners');
         cornersToUse = detectedCorners;
       } else {
         print('⚠️ GALLERY ENHANCED: Enhanced detection failed, using smart defaults');
+        // Get image dimensions for proper corner scaling
+        final bytes = await imageFile.readAsBytes();
+        final image = img.decodeImage(bytes);
+        
+        if (image == null) {
+          throw Exception('Failed to decode image');
+        }
+        
         final imageWidth = image.width.toDouble();
         final imageHeight = image.height.toDouble();
         cornersToUse = [
@@ -395,14 +418,18 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       // Give UI time to update
       await Future.delayed(const Duration(milliseconds: 200));
       
-      // Show edge adjustment dialog
+      // Show user-friendly edge adjustment dialog
       List<Offset>? userAdjustedCorners;
       
       try {
-        print('🔍 GALLERY ENHANCED: Showing edge adjustment dialog...');
-        userAdjustedCorners = await _showEdgeDetectionControl(
-          imageFile, 
-          cornersToUse,
+        print('🔍 GALLERY ENHANCED: Showing user-friendly edge adjustment dialog...');
+        userAdjustedCorners = await showDialog<List<Offset>>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => SimpleEdgeDetectionDialog(
+            imageFile: imageFile,
+            detectedCorners: cornersToUse,
+          ),
         );
         print('🔍 GALLERY ENHANCED: Dialog returned: $userAdjustedCorners');
       } catch (dialogError) {
@@ -572,6 +599,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _detectedCorners = null; // Reset detected corners
     });
     
+    // Update with user-friendly message
+    _updateProcessingState(0, 'Scanning your receipt...', 0.1);
+    
     print('🛑 PROCESSING: Stopped document detection, starting image processing...');
     
     try {
@@ -579,41 +609,34 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       print('🔍 DEBUG: Image file path: ${imageFile.path}');
       print('🔍 DEBUG: Image file exists: ${await imageFile.exists()}');
       
-      // Try multiple edge detection methods with timeout protection
-      List<Offset>? corners;
+      // Use simple edge detection that always returns 4 corners
+      print('🔍 DEBUG: Using simple edge detection with guaranteed 4 corners...');
+      final corners = await SimpleEdgeDetectionService.detectDocumentEdges(imageFile);
+      print('🔍 DEBUG: Simple edge detection result: $corners');
+      print('🔍 DEBUG: Corner count: ${corners.length}');
       
-      // Method 1: Try enhanced detection with timeout
-      try {
-        corners = await Future.any([
-          _mlKitService.detectDocumentCorners(imageFile),
-          Future.delayed(const Duration(seconds: 10), () {
-            throw TimeoutException('Edge detection timed out after 10 seconds', const Duration(seconds: 10));
-          }),
-        ]);
-        print('🔍 DEBUG: Enhanced edge detection result: $corners');
-      } catch (e) {
-        print('❌ Enhanced detection failed: $e');
-      }
-      
-      // Method 2: Try fast detection if enhanced failed
-      if (corners == null || corners.length != 4) {
-        try {
-          corners = await Future.any([
-            _mlKitService.detectDocumentCorners(imageFile),
-            Future.delayed(const Duration(seconds: 5), () {
-              throw TimeoutException('Fast edge detection timed out after 5 seconds', const Duration(seconds: 5));
-            }),
-          ]);
-          print('🔍 DEBUG: Fast edge detection result: $corners');
-        } catch (e) {
-          print('❌ Fast detection failed: $e');
-        }
+      // Validate corners
+      if (corners.length != 4) {
+        print('❌ DEBUG: Invalid corner count: ${corners.length}');
+        // Force 4 corners
+        final width = 400.0; // Default width
+        final height = 600.0; // Default height
+        final fallbackCorners = [
+          Offset(width * 0.1, height * 0.1),      // Top-left
+          Offset(width * 0.9, height * 0.1),      // Top-right
+          Offset(width * 0.9, height * 0.9),      // Bottom-right
+          Offset(width * 0.1, height * 0.9),      // Bottom-left
+        ];
+        print('🔍 DEBUG: Using fallback corners: $fallbackCorners');
+        // Update the corners variable
+        corners.clear();
+        corners.addAll(fallbackCorners);
       }
       
       File processedImage;
       String processingMessage = '';
 
-      if (corners != null && corners.length == 4) {
+      if (corners.length == 4) {
         print('✅ STEP 1 COMPLETE: Found ${corners.length} corners');
         print('🔍 DEBUG: Corners found: $corners');
         
@@ -621,6 +644,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         setState(() {
           _isPreprocessing = false;
         });
+        
+        // Update with user-friendly message
+        _updateProcessingState(1, 'Getting ready to read...', 0.3);
         
         // Show user control for edge detection
         print('🔍 STEP 1.5: Showing user control for edge detection...');
@@ -635,9 +661,16 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         // Add a small delay to ensure UI is ready
         await Future.delayed(const Duration(milliseconds: 200));
         
-        print('🔍 DEBUG: Context is valid, showing edge detection dialog...');
-        final userAdjustedCorners = await _showEdgeDetectionControl(imageFile, corners);
-        print('🔍 DEBUG: Edge detection dialog returned: $userAdjustedCorners');
+        print('🔍 DEBUG: Context is valid, showing simple edge detection dialog...');
+        final userAdjustedCorners = await showDialog<List<Offset>>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => SimpleEdgeDetectionDialog(
+            imageFile: imageFile,
+            detectedCorners: corners,
+          ),
+        );
+        print('🔍 DEBUG: Simple edge detection dialog returned: $userAdjustedCorners');
         
         if (userAdjustedCorners != null && userAdjustedCorners.length == 4) {
           print('✅ STEP 1.5 COMPLETE: User adjusted corners - USING ADJUSTED CORNERS');
@@ -730,7 +763,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                 Offset(imageWidth * 0.1, imageHeight * 0.9),  // Bottom-left
               ];
               
-              final userAdjustedCorners = await _showEdgeDetectionControl(imageFile, defaultCorners);
+              final userAdjustedCorners = await showDialog<List<Offset>>(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => SimpleEdgeDetectionDialog(
+                  imageFile: imageFile,
+                  detectedCorners: defaultCorners,
+                ),
+              );
               
               if (userAdjustedCorners != null && userAdjustedCorners.length == 4) {
                 setState(() {
@@ -816,6 +856,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     
     print('🔍 AUTO OCR: Starting automatic OCR extraction...');
     
+    // Update with user-friendly message
+    _updateProcessingState(2, 'Reading the text...', 0.6);
+    
     setState(() {
       _isRunningOCR = true;
     });
@@ -828,15 +871,24 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       print('  Amount: ${ocrResult.total}');
       print('  Currency: "${ocrResult.currency}"');
       print('  Date: ${ocrResult.date}');
+      print('  Category: "${ocrResult.category}"');
+      
+      // Update with completion message
+      _updateProcessingState(3, 'Almost done!', 0.9);
       
       setState(() {
         _detectedTitle = ocrResult.vendor;
         _detectedTotal = ocrResult.total;
         _detectedCurrency = ocrResult.currency;
         _detectedDate = ocrResult.date;
+        _detectedCategory = ocrResult.category;
         _isRunningOCR = false;
+        _isProcessingImage = false; // Stop processing when OCR completes
         _isOcrCompleted = true; // Enable Done button
       });
+      
+      // Final completion message
+      _updateProcessingState(4, 'Perfect! Found your receipt', 1.0);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1461,6 +1513,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
       print('  Detected title: "$_detectedTitle"');
       print('  Detected total: $_detectedTotal');
       print('  Detected currency: "$_detectedCurrency"');
+      print('  Detected category: "$_detectedCategory"');
       
       // OCR data should already be available from previous extraction
       // No need to re-run OCR here - it was already done automatically
@@ -1468,12 +1521,14 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
       print('  Vendor: "$_detectedTitle"');
       print('  Amount: $_detectedTotal');
       print('  Currency: "$_detectedCurrency"');
+      print('  Category: "$_detectedCategory"');
       
       print('🔍 MAGIC CAMERA: Final data before navigation:');
       print('  Image path: $_scannedImagePath');
       print('  Detected title: "$_detectedTitle"');
       print('  Detected total: $_detectedTotal');
       print('  Detected currency: "$_detectedCurrency"');
+      print('  Detected category: "$_detectedCategory"');
       
       context.push('/post-capture', extra: {
         'imagePath': _scannedImagePath,
@@ -1481,6 +1536,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
         'detectedTotal': _detectedTotal,
         'detectedCurrency': _detectedCurrency,
         'detectedDate': _detectedDate,
+        'detectedCategory': _detectedCategory,
       });
     }
   }
@@ -1544,6 +1600,20 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
           // Camera Preview
           CameraPreview(_controller!),
           
+          // Camera Guidance Overlay
+          if (_scanMode == 'scan_document' && !_isProcessingImage)
+            CameraGuidanceOverlay(
+              showPositioningHints: true,
+              showQualityMeter: _isDocumentDetected,
+              showStabilityIndicator: _isEdgeStable,
+              message: _isDocumentDetected 
+                ? (_isEdgeStable ? 'Perfect! Tap to scan' : 'Hold steady...')
+                : 'Point camera at your receipt',
+              hint: _isDocumentDetected 
+                ? 'Keep it flat and well-lit'
+                : 'Keep it flat and well-lit',
+            ),
+          
           // Overlay UI
           Positioned.fill(
             child: Container(
@@ -1556,9 +1626,10 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                   Expanded(
                     flex: 2,
                     child: Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             _scanMode == 'scan_document' ? Icons.document_scanner : Icons.photo_library,
@@ -1605,7 +1676,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                   Expanded(
                     flex: 3,
                     child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 40),
+                      margin: const EdgeInsets.symmetric(horizontal: 40, vertical: 8),
                       decoration: BoxDecoration(
                         border: Border.all(color: Colors.white, width: 2),
                         borderRadius: BorderRadius.circular(12),
@@ -1698,37 +1769,23 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                   Expanded(
                     flex: 2,
                     child: Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           // Show different controls based on scan mode
                           if (_scanMode == 'scan_document') ...[
-                            // Document scanner controls
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: _isScanning || _isProcessingImage ? null : _takePicture,
-                                icon: _isScanning 
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : Icon(_isEdgeStable ? Icons.auto_awesome : Icons.camera_alt),
-                                label: Text(_isScanning 
+                            // User-friendly capture button
+                            Center(
+                              child: ReadyToScanButton(
+                                onTap: _isScanning || _isProcessingImage ? () {} : _takePicture,
+                                text: _isScanning 
                                   ? 'Capturing...' 
                                   : _isEdgeStable 
-                                    ? 'Auto-Capture Ready' 
-                                    : 'Tap to Capture'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isEdgeStable ? Colors.green : Colors.blue,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
+                                    ? 'Tap to scan' 
+                                    : 'Tap to scan',
+                                isEnabled: !_isScanning && !_isProcessingImage,
                               ),
                             ),
                             
@@ -1813,38 +1870,29 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                                 ),
                               ),
                             ] else ...[
-                              // Gallery import completed
+                              // Gallery import completed - simplified without green text
                               Container(
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: Colors.green.withOpacity(0.1),
+                                  color: Colors.blue.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
                                 ),
                                 child: const Column(
                                   children: [
                                     Icon(
                                       Icons.check_circle,
-                                      color: Colors.green,
+                                      color: Colors.blue,
                                       size: 32,
                                     ),
                                     SizedBox(height: 8),
                                     Text(
-                                      'Gallery Import Complete',
+                                      'Image Ready',
                                       style: TextStyle(
-                                        color: Colors.green,
+                                        color: Colors.blue,
                                         fontSize: 16,
                                         fontWeight: FontWeight.w600,
                                       ),
-                                    ),
-                                    SizedBox(height: 4),
-                                    Text(
-                                      'Image processed with edge detection',
-                                      style: TextStyle(
-                                        color: Colors.green,
-                                        fontSize: 14,
-                                      ),
-                                      textAlign: TextAlign.center,
                                     ),
                                   ],
                                 ),
@@ -1860,47 +1908,43 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
             ),
           ),
           
-          // Processing overlay
+          // User-friendly processing overlay
           if (_isProcessingImage)
-            Container(
-              color: Colors.black54,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      Text(
-                        _isPreprocessing 
-                          ? '🔍 Processing Image...\n\nStep 1: Edge Detection\nStep 2: Perspective Correction\nStep 3: Image Preprocessing'
-                          : '🔍 Running OCR...\n\nExtracting text from processed image',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            UserFriendlyLoadingOverlay(
+              isLoading: true,
+              message: _currentProcessingMessage,
+              progress: _processingProgress,
+              child: Container(),
+            ),
+          
+          // Processing pipeline (alternative view) - only show when processing and NOT completed
+          if (_isProcessingImage && _currentProcessingStep > 0 && !_isOcrCompleted)
+            Positioned(
+              top: 100,
+              left: 20,
+              right: 20,
+              child: ProcessingPipeline(
+                steps: ReceiptProcessingSteps.steps,
+                currentStep: _currentProcessingStep,
+                isCompleted: false, // Never show as completed here
+              ),
+            ),
+          
+          // Success feedback when processing is complete - only show when OCR is completed
+          if (_scannedImagePath != null && !_isProcessingImage && _processedImage != null && _isOcrCompleted)
+            Positioned(
+              top: 100,
+              left: 20,
+              right: 20,
+              child: ProcessingSuccessFeedback(
+                title: 'Perfect! Found your receipt',
+                subtitle: 'Tap to see the details',
+                onTap: _onDonePressed,
               ),
             ),
           
           // Image preview before OCR (when processing is complete)
-          if (_scannedImagePath != null && !_isProcessingImage && _processedImage != null)
+          if (_scannedImagePath != null && !_isProcessingImage && _processedImage != null && !_isOcrCompleted)
             Positioned(
               top: 100,
               left: 20,
@@ -2065,6 +2109,50 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                 ),
               ),
             ),
+        ],
+      ),
+      bottomNavigationBar: ModernBottomNavigationBar(
+        currentIndex: 2, // Camera/Scan is active
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              context.go('/home');
+              break;
+            case 1:
+              context.go('/analysis');
+              break;
+            case 2:
+              // Already on scan/camera page
+              break;
+            case 3:
+              context.go('/bills');
+              break;
+            case 4:
+              context.go('/settings');
+              break;
+          }
+        },
+        items: const [
+          ModernBottomNavigationBarItem(
+            icon: Icons.home,
+            label: 'Home',
+          ),
+          ModernBottomNavigationBarItem(
+            icon: Icons.analytics,
+            label: 'Analysis',
+          ),
+          ModernBottomNavigationBarItem(
+            icon: Icons.camera_alt,
+            label: 'Scan',
+          ),
+          ModernBottomNavigationBarItem(
+            icon: Icons.folder,
+            label: 'Storage',
+          ),
+          ModernBottomNavigationBarItem(
+            icon: Icons.person,
+            label: 'Profile',
+          ),
         ],
       ),
     );

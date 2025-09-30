@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../auth/providers/auth_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import './dynamic_expense_modal.dart';
@@ -9,6 +8,9 @@ import '../storage/models/bill_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
+import '../../core/services/premium_service.dart';
+import '../../core/widgets/subscription_paywall.dart';
+import '../../core/widgets/usage_tracker.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   final double growthPercentage;
@@ -227,124 +229,91 @@ class _HomePageState extends ConsumerState<HomePage> {
     print('🔍 MAGIC HOME: Modal should now be visible');
   }
 
-  Widget _buildCustomAppBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  PreferredSizeWidget _buildCustomAppBar() {
+    return AppBar(
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4facfe), Color(0xFF00f2fe)],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF4facfe).withOpacity(0.4),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                                 child: const Icon(
-                   Icons.receipt_long,
-                   color: Colors.white,
-                   size: 24,
-                 ),
-              ),
-              const SizedBox(width: 12),
-               Column(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-              const Text(
-                     'Smart Receipt',
-                style: TextStyle(
-                       fontSize: 20,
-                       fontWeight: FontWeight.bold,
-                       color: Colors.black87,
-                     ),
-                   ),
-                   Row(
-                     children: [
-                       const Text(
-                         'Track your expenses',
-                         style: TextStyle(
-                           fontSize: 12,
-                           color: Colors.grey,
-                         ),
-                       ),
-                       const SizedBox(width: 8),
-                       Container(
-                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                         decoration: BoxDecoration(
-                           color: _getCurrencyColor(_selectedCurrency).withOpacity(0.1),
-                           borderRadius: BorderRadius.circular(8),
-                           border: Border.all(
-                             color: _getCurrencyColor(_selectedCurrency).withOpacity(0.3),
-                             width: 1,
-                           ),
-                         ),
-                         child: Row(
-                           mainAxisSize: MainAxisSize.min,
-                           children: [
-                             Icon(
-                               _getCurrencyIcon(_selectedCurrency),
-                               color: _getCurrencyColor(_selectedCurrency),
-                               size: 10,
-                             ),
-                             const SizedBox(width: 2),
-                             Text(
-                               _selectedCurrency,
-                               style: TextStyle(
-                                 color: _getCurrencyColor(_selectedCurrency),
-                                 fontSize: 10,
-                                 fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-                       ),
-                     ],
-                   ),
-                 ],
-               ),
-            ],
-          ),
-                     Row(
-             children: [
-               
-               // Notifications
           Container(
-                 padding: const EdgeInsets.all(8),
-                 decoration: BoxDecoration(
-                   color: Colors.grey.withOpacity(0.1),
-                   borderRadius: BorderRadius.circular(12),
-                 ),
-                 child: const Icon(
-                   Icons.notifications_outlined,
-                   color: Colors.grey,
-                   size: 24,
-                 ),
-               ),
-             ],
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4facfe), Color(0xFF00f2fe)],
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.receipt_long,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              'Smart Receipt',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
+      backgroundColor: Colors.white,
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      actions: [
+        Flexible(
+          child: Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _getCurrencyColor(_selectedCurrency).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _getCurrencyColor(_selectedCurrency).withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _getCurrencyIcon(_selectedCurrency),
+                  color: _getCurrencyColor(_selectedCurrency),
+                  size: 14,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _selectedCurrency,
+                  style: TextStyle(
+                    color: _getCurrencyColor(_selectedCurrency),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.only(right: 16),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.notifications_outlined,
+            color: Colors.grey,
+            size: 20,
+          ),
+        ),
+      ],
     );
   }
 
@@ -532,26 +501,29 @@ class _HomePageState extends ConsumerState<HomePage> {
             ],
           ),
           const SizedBox(height: 16),
-                     Row(
-             children: [
-               Text(
-                 '${_getCurrencySymbol(_selectedCurrency)}2,847',
-                 style: const TextStyle(
-                   fontSize: 32,
-                   fontWeight: FontWeight.bold,
-                   color: Colors.black87,
-                 ),
-               ),
-               const SizedBox(width: 8),
-               Text(
-                 'this month',
-                 style: const TextStyle(
-                   fontSize: 14,
-                   color: Colors.grey,
-                 ),
-               ),
-             ],
-           ),
+          Row(
+            children: [
+              Flexible(
+                child: Text(
+                  '${_getCurrencySymbol(_selectedCurrency)}2,847',
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'this month',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           LinearProgressIndicator(
             value: 0.7,
@@ -559,12 +531,14 @@ class _HomePageState extends ConsumerState<HomePage> {
             valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4facfe)),
           ),
           const SizedBox(height: 8),
-                     Text(
-             '70% of monthly budget used (${_getCurrencySymbol(_selectedCurrency)}4,000)',
-             style: TextStyle(
-               fontSize: 12,
-               color: Colors.grey[600],
+          Text(
+            '70% of monthly budget used (${_getCurrencySymbol(_selectedCurrency)}4,000)',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
             ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
         ],
       ),
@@ -573,32 +547,42 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildQuickActions(int achievementsCount) {
     return ResponsiveContainer(
-      child: ResponsiveGridView(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        spacing: context.responsiveCardSpacing,
-        runSpacing: context.responsiveCardSpacing,
+      child: Column(
         children: [
-          AnimatedCard(
-            onTap: () => context.go('/scan'),
-            child: _buildActionCard(
-              'Scan Receipt',
-              '$achievementsCount scanned',
-              Icons.camera_alt_rounded,
-              AppTheme.primaryGradient,
+          // First row - two cards side by side
+          IntrinsicHeight(
+            child: Row(
+              children: [
+                Expanded(
+                  child: AnimatedCard(
+                    onTap: () => context.go('/scan'),
+                    child: _buildActionCard(
+                      'Scan Receipt',
+                      '$achievementsCount scanned',
+                      Icons.camera_alt_rounded,
+                      AppTheme.primaryGradient,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AnimatedCard(
+                    onTap: () => _showAchievements(),
+                    child: _buildActionCard(
+                      'Achievements',
+                      '$achievementsCount unlocked',
+                      Icons.emoji_events_rounded,
+                      const LinearGradient(
+                        colors: [Color(0xFFf59e0b), Color(0xFFd97706)],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          AnimatedCard(
-            onTap: () => _showAchievements(),
-            child: _buildActionCard(
-              'Achievements',
-              '$achievementsCount unlocked',
-              Icons.emoji_events_rounded,
-              const LinearGradient(
-                colors: [Color(0xFFf59e0b), Color(0xFFd97706)],
-              ),
-            ),
-          ),
+          const SizedBox(height: 12),
+          // Second row - Storage card (full width)
           AnimatedCard(
             onTap: () => context.go('/bills'),
             child: _buildActionCard(
@@ -610,6 +594,14 @@ class _HomePageState extends ConsumerState<HomePage> {
               ),
             ),
           ),
+          // Premium upgrade card for free users
+          if (!PremiumService.isPremium) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: _showUpgradePrompt,
+              child: _buildPremiumActionCard(),
+            ),
+          ],
         ],
       ),
     );
@@ -692,18 +684,18 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildActionCard(String title, String subtitle, IconData icon, Gradient gradient) {
     return Container(
+      height: 120, // Fixed height to make it rectangular
       padding: EdgeInsets.all(context.responsivePadding),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: AppTheme.largeBorderRadius,
         boxShadow: AppTheme.cardShadow,
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
           Container(
-            width: context.isMobile ? 40 : 48,
-            height: context.isMobile ? 40 : 48,
+            width: context.isMobile ? 50 : 60,
+            height: context.isMobile ? 50 : 60,
             decoration: BoxDecoration(
               gradient: gradient,
               borderRadius: AppTheme.mediumBorderRadius,
@@ -718,32 +710,122 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: Icon(
               icon,
               color: Colors.white,
-              size: context.isMobile ? 20 : 24,
+              size: context.isMobile ? 24 : 28,
             ),
           ),
-          ResponsiveSpacer(height: context.isMobile ? 8 : 12),
-          ResponsiveText(
-            title,
-            style: TextStyle(
-              fontSize: context.isMobile ? 14 : 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.black87,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: context.isMobile ? 14 : 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: context.isMobile ? 11 : 12,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-            textAlign: TextAlign.center,
-          ),
-          ResponsiveSpacer(height: context.isMobile ? 2 : 4),
-          ResponsiveText(
-            subtitle,
-            style: TextStyle(
-              fontSize: context.isMobile ? 10 : 12,
-              color: Colors.grey,
-              fontWeight: FontWeight.w500,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumActionCard() {
+    return Container(
+      height: 120,
+      margin: EdgeInsets.symmetric(horizontal: context.responsivePadding),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4facfe), Color(0xFF00f2fe)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: AppTheme.largeBorderRadius,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4facfe).withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.star,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'Upgrade to Pro',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Unlimited scans & more',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUpgradePrompt() {
+    showDialog(
+      context: context,
+      builder: (context) => SubscriptionPaywall(
+        title: 'Unlock Premium Features',
+        subtitle: 'Get unlimited scans, advanced analytics, and more!',
+        onDismiss: () => Navigator.of(context).pop(),
+        showTrialOption: !PremiumService.isTrialActive,
       ),
     );
   }
@@ -919,27 +1001,23 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     return Scaffold(
           backgroundColor: Colors.white,
+          appBar: _buildCustomAppBar(),
           body: Stack(
             children: [
-              Column(
-                children: [
-                  _buildCustomAppBar(),
-                  Expanded(
-                    child: SingleChildScrollView(
+              SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
                 child: Column(
                   children: [
-                          const SizedBox(height: 20),
+                    const SizedBox(height: 20),
                     _buildWelcomeCard(),
                     _buildSpendingAnalytics(widget.growthPercentage),
+                    // Usage tracker for free users
+                    if (!PremiumService.isPremium) const UsageTracker(),
                     _buildQuickActions(widget.achievementsCount),
-                          const SizedBox(height: 20),
-                          const SizedBox(height: 120), // Space for floating button
+                    const SizedBox(height: 20),
+                    const SizedBox(height: 120), // Space for floating button
                   ],
                 ),
-              ),
-                  ),
-                ],
               ),
               // Positioned button on left side, 1cm above bottom navigation
               Positioned(

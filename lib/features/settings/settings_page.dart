@@ -7,6 +7,8 @@ import '../auth/providers/auth_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
+import '../../core/services/premium_service.dart';
+import '../../core/widgets/subscription_reminder_settings.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -151,6 +153,54 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               
               const ResponsiveSpacer(height: 32),
               
+              // Testing Section (only show in debug mode)
+              if (const bool.fromEnvironment('dart.vm.product') == false) ...[
+                ResponsiveText(
+                  'Testing Tools',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                
+                const ResponsiveSpacer(height: 16),
+                
+                // Premium Testing
+                ResponsiveCard(
+                  child: _buildTestingTile(
+                    context,
+                    icon: Icons.star,
+                    title: 'Premium Status',
+                    subtitle: 'Current: ${PremiumService.isPremium ? "Premium" : "Free"} (${PremiumService.scanCount}/2 scans used)',
+                    onTap: _togglePremiumStatus,
+                  ),
+                ),
+                
+                // Reset Scan Count
+                ResponsiveCard(
+                  child: _buildTestingTile(
+                    context,
+                    icon: Icons.refresh,
+                    title: 'Reset Scan Count',
+                    subtitle: 'Reset free scan counter for testing',
+                    onTap: _resetScanCount,
+                  ),
+                ),
+                
+                // Start Free Trial
+                ResponsiveCard(
+                  child: _buildTestingTile(
+                    context,
+                    icon: Icons.timer,
+                    title: 'Start Free Trial',
+                    subtitle: 'Activate 7-day free trial for testing',
+                    onTap: _startFreeTrial,
+                  ),
+                ),
+                
+                const ResponsiveSpacer(height: 32),
+              ],
+              
               // Additional Options
               ResponsiveText(
                 'Additional Options',
@@ -161,6 +211,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
               
               const ResponsiveSpacer(height: 16),
+              
+              // Subscription Reminders
+              ResponsiveCard(
+                onTap: () => _navigateToSubscriptionReminders(context),
+                child: _buildActionTile(
+                  context,
+                  icon: Icons.notifications_active,
+                  title: 'Subscription Reminders',
+                  subtitle: 'Manage your subscription reminder notifications',
+                  color: Colors.blue,
+                ),
+              ),
               
               // Export Data
               ResponsiveCard(
@@ -319,6 +381,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       fontWeight: isSignedIn ? FontWeight.w500 : FontWeight.w600,
                     ),
                   ),
+                  
+                  // Subscription Status Indicator
+                  if (isSignedIn) ...[
+                    const SizedBox(height: 8),
+                    _buildSubscriptionStatus(),
+                  ],
+                  
                   if (!isSignedIn) ...[
                     const SizedBox(height: 8),
                     Container(
@@ -706,6 +775,70 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
+  void _navigateToSubscriptionReminders(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SubscriptionReminderSettings(),
+      ),
+    );
+  }
+
+  Widget _buildSubscriptionStatus() {
+    final isPremium = PremiumService.isPremium;
+    final isTrialActive = PremiumService.isTrialActive;
+    final subscriptionType = PremiumService.subscriptionType;
+    
+    if (!isPremium && !isTrialActive) {
+      return const SizedBox.shrink();
+    }
+    
+    String statusText;
+    Color statusColor;
+    IconData statusIcon;
+    
+    if (isTrialActive) {
+      final daysLeft = PremiumService.daysUntilTrialEnds ?? 0;
+      statusText = 'Trial - $daysLeft days left';
+      statusColor = Colors.orange;
+      statusIcon = Icons.timer;
+    } else if (isPremium) {
+      statusText = '$subscriptionType Plan Active';
+      statusColor = Colors.green;
+      statusIcon = Icons.star;
+    } else {
+      return const SizedBox.shrink();
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.1),
+        borderRadius: AppTheme.smallBorderRadius,
+        border: Border.all(color: statusColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            statusIcon,
+            size: 12,
+            color: statusColor,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            statusText,
+            style: TextStyle(
+              fontSize: 12,
+              color: statusColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditProfileDialog(BuildContext context) {
     final nameController = TextEditingController(text: 'Smart Receipt User');
     final emailController = TextEditingController(text: 'user@smartreceipt.com');
@@ -864,6 +997,117 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  // Testing methods
+  void _togglePremiumStatus() {
+    setState(() {
+      // Toggle premium status for testing
+      if (PremiumService.isPremium) {
+        // Reset to free
+        PremiumService.setPremiumStatus(false);
+      } else {
+        // Set to premium
+        PremiumService.setPremiumStatus(true);
+      }
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          PremiumService.isPremium 
+            ? 'Premium activated for testing!' 
+            : 'Switched to free tier for testing!'
+        ),
+        backgroundColor: PremiumService.isPremium ? Colors.green : Colors.orange,
+      ),
+    );
+  }
+
+  void _resetScanCount() async {
+    // Reset scan count for testing
+    await PremiumService.resetScanCount();
+    setState(() {});
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Scan count reset for testing!'),
+        backgroundColor: Colors.blue,
+      ),
+    );
+  }
+
+  void _startFreeTrial() async {
+    await PremiumService.startFreeTrial();
+    setState(() {});
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('7-day free trial started for testing!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  Widget _buildTestingTile(BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: Colors.orange,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: Colors.grey[400],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
+import 'package:smart_receipt/core/services/premium_service.dart';
+import 'package:smart_receipt/core/services/subscription_reminder_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +28,7 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await PremiumService.initialize();
 
   runApp(
     ProviderScope(

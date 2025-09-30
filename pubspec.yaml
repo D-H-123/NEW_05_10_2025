@@ -28,9 +28,11 @@ dependencies:
   path_provider: ^2.1.2    # To save images temporarily
   image_picker: ^1.1.2     # Pick images from gallery/camera
   image: ^4.1.7            # Image processing for edge detection and preprocessing
+  crypto: ^3.0.3           # For image fingerprinting and caching
 
  
   flutter_local_notifications: ^19.4.0
+  timezone: ^0.10.1
   fl_chart: ^1.0.0
   pdf: ^3.10.1
   csv: ^6.0.0

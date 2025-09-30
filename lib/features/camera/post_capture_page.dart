@@ -509,6 +509,16 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       appBar: AppBar(
         title: const Text('Receipt Details'),
         actions: [
+          // Reset button to go back to camera
+          IconButton(
+            onPressed: _isSaving ? null : () {
+              print('🔄 POST-CAPTURE: Reset button pressed, going back to camera');
+              context.go('/scan');
+            },
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Reset & Try Again',
+          ),
+          // Save button
           IconButton(
             onPressed: _isSaving ? null : _saveReceipt,
             icon: _isSaving 

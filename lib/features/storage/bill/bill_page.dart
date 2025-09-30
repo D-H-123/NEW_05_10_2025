@@ -11,6 +11,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'bill_provider.dart';
 import '../../../core/widgets/modern_widgets.dart';
 import '../../../core/services/local_storage_service.dart';
+import '../../../core/services/premium_service.dart';
+import '../../../core/widgets/subscription_paywall.dart';
 
 class BillsPage extends ConsumerStatefulWidget {
   const BillsPage({super.key});
@@ -176,7 +178,11 @@ class _BillsPageState extends ConsumerState<BillsPage> {
               subtitle: const Text('Export as PDF or share via email'),
               onTap: () {
                 Navigator.pop(context);
-                _showExportOptions(context, bill);
+                if (PremiumService.isExportAvailable) {
+                  _showExportOptions(context, bill);
+                } else {
+                  _showUpgradePrompt();
+                }
               },
             ),
             
@@ -273,6 +279,18 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
 ''';
 
     await Share.share(message);
+  }
+
+  void _showUpgradePrompt() {
+    showDialog(
+      context: context,
+      builder: (context) => SubscriptionPaywall(
+        title: 'Export Feature',
+        subtitle: 'Export receipts as PDF and share via email with Premium!',
+        onDismiss: () => Navigator.of(context).pop(),
+        showTrialOption: !PremiumService.isTrialActive,
+      ),
+    );
   }
 
   void _showExportOptions(BuildContext context, dynamic bill) {

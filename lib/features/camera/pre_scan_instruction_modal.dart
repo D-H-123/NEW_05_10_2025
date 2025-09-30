@@ -56,7 +56,7 @@ class PreScanInstructionModal extends StatelessWidget {
                   fontSize: 18,
                   height: 1.5,
                 ),
-                textAlign: TextAlign.center,
+                textAlign: TextAlign.left,
               ),
               
               const SizedBox(height: 60),

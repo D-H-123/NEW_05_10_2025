@@ -13,7 +13,11 @@ import '../../core/widgets/user_friendly_loading.dart';
 import '../../core/widgets/camera_guidance.dart';
 import '../../core/widgets/simple_edge_detection.dart';
 import '../../core/widgets/processing_success.dart';
-import '../../core/services/simple_edge_detection_service.dart';
+import '../../core/services/optimized_edge_detection_service.dart';
+import '../../core/widgets/simple_crop_dialog.dart';
+import '../../core/services/premium_service.dart';
+import '../../core/widgets/subscription_paywall.dart';
+import '../../core/widgets/usage_tracker.dart';
 import 'pre_scan_instruction_modal.dart';
 
 class CameraPage extends StatefulWidget {
@@ -52,6 +56,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   DateTime? _lastEdgeDetection;
   Timer? _stabilityTimer;
   Timer? _documentDetectionTimer; // Add timer reference for proper cleanup
+  Timer? _autoDetectionTimeout; // Timeout for auto-detection
   AnimationController? _pulseController;
   Animation<double>? _pulseAnimation;
 
@@ -75,6 +80,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     _initializeCamera();
     _initializeAnimations();
     _initializeMLKit();
+    _initializePremiumService();
     _showPreScanInstructions();
   }
 
@@ -99,6 +105,16 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       print('✅ ML Kit Document Scanner ready');
     } catch (e) {
       print('❌ ML Kit initialization failed: $e');
+    }
+  }
+
+  /// Initialize Premium Service
+  Future<void> _initializePremiumService() async {
+    try {
+      await PremiumService.initialize();
+      print('✅ Premium Service ready');
+    } catch (e) {
+      print('❌ Premium Service initialization failed: $e');
     }
   }
 
@@ -127,6 +143,20 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         });
       }
     });
+  }
+
+  /// Show upgrade prompt when scan limit is reached
+  void _showUpgradePrompt() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SubscriptionPaywall(
+        title: 'Scan Limit Reached',
+        subtitle: 'You\'ve used all your free scans this month. Upgrade to continue scanning!',
+        onDismiss: () => Navigator.of(context).pop(),
+        showTrialOption: !PremiumService.isTrialActive,
+      ),
+    );
   }
 
   /// Show simple scan options after pre-scan instructions (previous UI)
@@ -161,7 +191,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                 },
                 icon: const Icon(Icons.camera_alt),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: const Color(0xFF16213e),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -193,7 +223,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                 },
                 icon: const Icon(Icons.photo_library),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.blue,
+                  foregroundColor: const Color(0xFF16213e),
                   side: const BorderSide(color: Colors.blue, width: 2),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -251,6 +281,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       return;
     }
 
+    // Check scan limit for free users
+    if (!PremiumService.canScan) {
+      _showUpgradePrompt();
+      return;
+    }
+
     try {
       setState(() {
         _isScanning = true;
@@ -274,8 +310,11 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         return;
       }
       
-      // Process the captured image with edge detection and preprocessing
-      await _processCapturedImage(File(image.path));
+      // Show captured image with crop controls for better user control
+      await _showCapturedImageWithCrop(File(image.path));
+      
+      // Increment scan count for free users
+      await PremiumService.incrementScanCount();
       
       setState(() {
         _isScanning = false;
@@ -332,8 +371,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
-  /// Pick image from gallery with edge detection control
+  /// Pick image from gallery with smart crop
   Future<void> _pickFromGallery() async {
+    // Check scan limit for free users
+    if (!PremiumService.canScan) {
+      _showUpgradePrompt();
+      return;
+    }
+
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
@@ -358,8 +403,11 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           return;
         }
         
-        // Use enhanced edge detection with ML Kit integration
-        await _showEdgeAdjustmentForGalleryEnhanced(imageFile);
+        // Use smart crop for maximum efficiency and accuracy
+        await _showSmartCropDialog(imageFile);
+        
+        // Increment scan count for free users
+        await PremiumService.incrementScanCount();
       }
     } catch (e) {
       print('❌ Error picking from gallery: $e');
@@ -371,140 +419,138 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       );
     }
   }
-
-  /// Enhanced gallery edge adjustment with ML Kit
-  Future<void> _showEdgeAdjustmentForGalleryEnhanced(File imageFile) async {
-    print('🔍 GALLERY ENHANCED: Starting enhanced edge adjustment...');
-    
-    setState(() {
-      _isProcessingImage = true;
-      _scannedImagePath = imageFile.path;
-    });
+  
+  /// Show simple crop dialog (manual crop only, no auto-detect)
+  Future<void> _showSmartCropDialog(File imageFile) async {
+    print('🚀 SIMPLE CROP: Starting simple crop dialog...');
     
     try {
-      // Use simple edge detection that always returns 4 corners
-      print('🔍 GALLERY ENHANCED: Using simple edge detection with guaranteed 4 corners...');
-      final detectedCorners = await SimpleEdgeDetectionService.detectDocumentEdges(imageFile);
+      // Show simple crop dialog with manual crop only
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => SimpleCropDialog(
+          imageFile: imageFile,
+          onCropped: (croppedFile) async {
+            print('✅ SIMPLE CROP: Image cropped successfully');
+            await _processCroppedImage(croppedFile);
+          },
+        ),
+      );
       
-      List<Offset> cornersToUse;
+    } catch (e) {
+      print('❌ SIMPLE CROP: Failed to show crop dialog: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error showing crop dialog: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  
+  /// Show captured image with crop controls for better user control
+  Future<void> _showCapturedImageWithCrop(File imageFile) async {
+    print('📸 CAPTURED: Showing captured image with crop controls...');
+    
+    try {
+      // Show crop dialog for captured image (same as gallery flow)
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => SimpleCropDialog(
+          imageFile: imageFile,
+          onCropped: (croppedFile) async {
+            print('✅ CAPTURED: Image cropped successfully');
+            await _processCroppedImage(croppedFile);
+          },
+        ),
+      );
       
-      if (detectedCorners.length == 4) {
-        print('✅ GALLERY ENHANCED: Enhanced detection found ${detectedCorners.length} corners');
-        cornersToUse = detectedCorners;
-      } else {
-        print('⚠️ GALLERY ENHANCED: Enhanced detection failed, using smart defaults');
-        // Get image dimensions for proper corner scaling
-        final bytes = await imageFile.readAsBytes();
-        final image = img.decodeImage(bytes);
-        
-        if (image == null) {
-          throw Exception('Failed to decode image');
-        }
-        
-        final imageWidth = image.width.toDouble();
-        final imageHeight = image.height.toDouble();
-        cornersToUse = [
-          Offset(imageWidth * 0.05, imageHeight * 0.05),
-          Offset(imageWidth * 0.95, imageHeight * 0.05),
-          Offset(imageWidth * 0.95, imageHeight * 0.95),
-          Offset(imageWidth * 0.05, imageHeight * 0.95),
-        ];
-      }
+    } catch (e) {
+      print('❌ CAPTURED: Failed to show crop dialog: $e');
       
-      setState(() {
-        _isProcessingImage = false;
-      });
-      
-      // Give UI time to update
-      await Future.delayed(const Duration(milliseconds: 200));
-      
-      // Show user-friendly edge adjustment dialog
-      List<Offset>? userAdjustedCorners;
-      
-      try {
-        print('🔍 GALLERY ENHANCED: Showing user-friendly edge adjustment dialog...');
-        userAdjustedCorners = await showDialog<List<Offset>>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => SimpleEdgeDetectionDialog(
-            imageFile: imageFile,
-            detectedCorners: cornersToUse,
-          ),
-        );
-        print('🔍 GALLERY ENHANCED: Dialog returned: $userAdjustedCorners');
-      } catch (dialogError) {
-        print('❌ GALLERY ENHANCED: Dialog error: $dialogError');
-        // Show error dialog and ask if user wants to continue
-        final shouldProceed = await showDialog<bool>(
+      // Show error dialog with retry option
+      if (mounted) {
+        showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Edge Detection Failed'),
-            content: const Text('Failed to show edge adjustment dialog. Would you like to continue with basic processing?'),
+            title: const Text('Capture Error'),
+            content: const Text('Failed to process the captured image. Would you like to try again?'),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _resetCamera();
+                },
+                child: const Text('Try Again'),
               ),
               TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Continue'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Cancel'),
               ),
             ],
           ),
         );
-        
-        if (shouldProceed != true) {
-          setState(() {
-            _isProcessingImage = false;
-            _scannedImagePath = null;
-          });
-          return;
-        }
-        userAdjustedCorners = null;
       }
-      
-      // Process the image
-      setState(() {
-        _isProcessingImage = true;
-        _isPreprocessing = true;
-      });
-      
-      File processedImage;
-      
-      if (userAdjustedCorners != null && userAdjustedCorners.length == 4) {
-        print('✅ GALLERY ENHANCED: Processing with user-adjusted corners');
-        
-        setState(() {
-          _detectedCorners = userAdjustedCorners;
-        });
-        
-        final correctedImage = await _preprocessor.applyPerspectiveCorrection(
-          imageFile, 
-          userAdjustedCorners
-        );
-        processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(correctedImage);
-        
-      } else {
-        print('⚠️ GALLERY ENHANCED: Processing with basic preprocessing');
-        processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(imageFile);
-      }
+    }
+  }
+
+  /// Process cropped image with OCR and post-capture flow
+  Future<void> _processCroppedImage(File croppedFile) async {
+    print('🚀 PROCESSING: Starting OCR processing for cropped image...');
+    
+    setState(() {
+      _isProcessingImage = true;
+      _isPreprocessing = true;
+      _scannedImagePath = croppedFile.path;
+    });
+    
+    try {
+      // Apply OCR preprocessing to cropped image
+      final processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(croppedFile);
       
       setState(() {
         _processedImage = processedImage;
         _scannedImagePath = processedImage.path;
         _isPreprocessing = false;
-        _isOcrCompleted = false; // Reset OCR completion flag for new image
+        _isOcrCompleted = false;
       });
       
-      print('✅ GALLERY ENHANCED: Processing complete');
+      print('✅ PROCESSING: Image processing complete');
       
-      // Automatically trigger OCR after preprocessing completes
-      print('🔍 GALLERY ENHANCED: Auto-triggering OCR after preprocessing...');
+      // Automatically trigger OCR
       await _performAutomaticOCR();
-      // No automatic OCR here - user must apply corner adjustments first
+      
+      // Wait a moment for OCR to complete and then navigate
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // After OCR completion, show post-capture page
+      if (_isOcrCompleted && mounted) {
+        print('🚀 POST-CAPTURE: Navigating to post-capture page...');
+        print('🚀 POST-CAPTURE: Data being passed:');
+        print('  Image path: $_scannedImagePath');
+        print('  Detected title: "$_detectedTitle"');
+        print('  Detected total: $_detectedTotal');
+        print('  Detected currency: "$_detectedCurrency"');
+        print('  Detected date: $_detectedDate');
+        print('  Detected category: "$_detectedCategory"');
+        
+        context.go('/post-capture', extra: {
+          'imagePath': _scannedImagePath,
+          'detectedTitle': _detectedTitle,      // ✅ Fixed key
+          'detectedTotal': _detectedTotal,      // ✅ Fixed key
+          'detectedCurrency': _detectedCurrency, // ✅ Fixed key
+          'detectedDate': _detectedDate,        // ✅ Fixed key
+          'detectedCategory': _detectedCategory, // ✅ Fixed key
+        });
+      }
       
     } catch (e) {
-      print('❌ GALLERY ENHANCED: Processing failed: $e');
+      print('❌ PROCESSING: Failed to process cropped image: $e');
       setState(() {
         _isProcessingImage = false;
         _isPreprocessing = false;
@@ -512,12 +558,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error processing gallery image: $e'),
+          content: Text('Error processing image: $e'),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
+  
+
 
   /// Test method to verify edge adjustment dialog works
   Future<void> _testEdgeDialog() async {
@@ -609,9 +657,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       print('🔍 DEBUG: Image file path: ${imageFile.path}');
       print('🔍 DEBUG: Image file exists: ${await imageFile.exists()}');
       
-      // Use simple edge detection that always returns 4 corners
-      print('🔍 DEBUG: Using simple edge detection with guaranteed 4 corners...');
-      final corners = await SimpleEdgeDetectionService.detectDocumentEdges(imageFile);
+      // Use optimized edge detection with caching and smart algorithms
+      print('🔍 DEBUG: Using optimized edge detection with smart algorithms...');
+      final corners = await OptimizedEdgeDetectionService.detectDocumentEdges(imageFile);
       print('🔍 DEBUG: Simple edge detection result: $corners');
       print('🔍 DEBUG: Corner count: ${corners.length}');
       
@@ -887,6 +935,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _isOcrCompleted = true; // Enable Done button
       });
       
+      print('🔍 AUTO OCR: State updated with OCR results:');
+      print('  _detectedTitle: "$_detectedTitle"');
+      print('  _detectedTotal: $_detectedTotal');
+      print('  _detectedCurrency: "$_detectedCurrency"');
+      print('  _detectedDate: $_detectedDate');
+      print('  _detectedCategory: "$_detectedCategory"');
+      print('  _isOcrCompleted: $_isOcrCompleted');
+      
       // Final completion message
       _updateProcessingState(4, 'Perfect! Found your receipt', 1.0);
       
@@ -918,8 +974,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     }
   }
 
-  /// Retake photo - reset to camera view
-  void _retakePhoto() {
+  /// Reset camera - clear state and restart detection
+  void _resetCamera() {
+    print('🔄 RESET: Resetting camera state...');
+    
     setState(() {
       _processedImage = null;
       _scannedImagePath = null;
@@ -929,12 +987,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _detectedCurrency = null;
       _detectedDate = null;
       _isProcessingImage = false;
-      _isOcrCompleted = false; // Reset OCR completion flag
+      _isOcrCompleted = false;
       _isPreprocessing = false;
-      _isRunningOCR = false; // Reset OCR state
+      _isRunningOCR = false;
       _isDocumentDetected = false;
       _isEdgeStable = false;
+      _isScanning = false;
     });
+    
     _stopStabilityTimer();
     _stopDocumentDetection();
     
@@ -942,6 +1002,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (_scanMode == 'scan_document') {
       _startDocumentDetection();
     }
+    
+    print('🔄 RESET: Camera reset complete, restarting detection...');
+  }
+
+  /// Retake photo - reset to camera view
+  void _retakePhoto() {
+    _resetCamera();
   }
 
   /// Start document detection for auto-capture
@@ -962,6 +1029,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _detectDocumentEdges();
     });
     
+    // Set timeout for auto-detection (10 seconds)
+    _autoDetectionTimeout = Timer(const Duration(seconds: 10), () {
+      if (mounted && !_isDocumentDetected && !_isScanning && !_isProcessingImage) {
+        print('⏰ TIMEOUT: Auto-detection timeout, manual capture still available');
+        // The manual capture button will remain available
+      }
+    });
+    
     print('🔄 DOCUMENT DETECTION: Started periodic edge detection timer');
   }
   
@@ -971,6 +1046,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       print('🛑 DOCUMENT DETECTION: Stopping document detection timer');
       _documentDetectionTimer!.cancel();
       _documentDetectionTimer = null;
+    }
+    
+    if (_autoDetectionTimeout != null) {
+      print('🛑 TIMEOUT: Stopping auto-detection timeout timer');
+      _autoDetectionTimeout!.cancel();
+      _autoDetectionTimeout = null;
     }
   }
 
@@ -1546,6 +1627,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
     _controller?.dispose();
     _stabilityTimer?.cancel();
     _documentDetectionTimer?.cancel(); // Clean up document detection timer
+    _autoDetectionTimeout?.cancel(); // Clean up auto-detection timeout timer
     _pulseController?.dispose();
     _mlKitService.dispose();
     _ocrService.dispose();
@@ -1568,19 +1650,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
         actions: [
           if (_scannedImagePath != null) ...[
             IconButton(
-              onPressed: () {
-                setState(() {
-                  _scannedImagePath = null;
-                  _detectedTitle = null;
-                  _detectedTotal = null;
-                  _detectedCurrency = null;
-                  _processedImage = null;
-                  _detectedCorners = null;
-                  _isDocumentDetected = false;
-                  _isEdgeStable = false;
-                });
-                _stopStabilityTimer();
-              },
+              onPressed: _resetCamera,
               icon: const Icon(Icons.refresh),
               tooltip: 'Reset',
             ),
@@ -1614,6 +1684,15 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                 : 'Keep it flat and well-lit',
             ),
           
+          // Usage Tracker for free users
+          if (!PremiumService.isPremium)
+            Positioned(
+              top: 50,
+              left: 16,
+              right: 16,
+              child: const ScanLimitBanner(),
+            ),
+
           // Overlay UI
           Positioned.fill(
             child: Container(
@@ -1651,7 +1730,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                           const SizedBox(height: 8),
                           Text(
                             _scanMode == 'scan_document'
-                              ? 'Auto-capture when edges are stable\nor tap to capture manually'
+                              ? 'Position your receipt in the frame\nAuto-capture when document is detected'
                               : _isProcessingImage 
                                 ? 'Detecting edges - you can adjust them\nfor better OCR accuracy'
                                 : _scannedImagePath != null && _processedImage != null
@@ -1776,36 +1855,85 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                         children: [
                           // Show different controls based on scan mode
                           if (_scanMode == 'scan_document') ...[
-                            // User-friendly capture button
+                            // Auto-capture status with manual options
                             Center(
-                              child: ReadyToScanButton(
-                                onTap: _isScanning || _isProcessingImage ? () {} : _takePicture,
-                                text: _isScanning 
-                                  ? 'Capturing...' 
-                                  : _isEdgeStable 
-                                    ? 'Tap to scan' 
-                                    : 'Tap to scan',
-                                isEnabled: !_isScanning && !_isProcessingImage,
-                              ),
-                            ),
-                            
-                            const SizedBox(height: 16),
-                            
-                            // Status indicator
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.7),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                _isDocumentDetected 
-                                  ? (_isEdgeStable ? 'Edges Stable - Auto-capture Ready' : 'Document Detected - Stabilizing...')
-                                  : 'Looking for document...',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
+                              child: Column(
+                                children: [
+                                  // Status indicator
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                    decoration: BoxDecoration(
+                                      color: _isDocumentDetected 
+                                        ? (_isEdgeStable ? Colors.green.withOpacity(0.9) : Colors.orange.withOpacity(0.9))
+                                        : Colors.blue.withOpacity(0.9),
+                                      borderRadius: BorderRadius.circular(25),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _isDocumentDetected 
+                                            ? (_isEdgeStable ? Icons.check_circle : Icons.timer)
+                                            : Icons.search,
+                                          color: Colors.white,
+                                          size: 32,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          _isDocumentDetected 
+                                            ? (_isEdgeStable ? 'Auto-capturing in 0.3s...' : 'Stabilizing edges...')
+                                            : 'Looking for document...',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  
+                                  const SizedBox(height: 16),
+                                  
+                                  // Manual controls
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      // Manual capture button
+                                      ElevatedButton.icon(
+                                        onPressed: _isScanning || _isProcessingImage ? null : _takePicture,
+                                        icon: const Icon(Icons.camera_alt, size: 18),
+                                        label: const Text('Capture'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.white,
+                                          foregroundColor: Colors.black,
+                                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                        ),
+                                      ),
+                                      
+                                      const SizedBox(width: 12),
+                                      
+                                      // Reset button
+                                      OutlinedButton.icon(
+                                        onPressed: _isScanning || _isProcessingImage ? null : _resetCamera,
+                                        icon: const Icon(Icons.refresh, size: 18),
+                                        label: const Text('Reset'),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          side: const BorderSide(color: Colors.white),
+                                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
                                                       ] else ...[

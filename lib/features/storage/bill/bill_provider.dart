@@ -24,6 +24,34 @@ class BillNotifier extends StateNotifier<List<Bill>> {
     box.delete(billId);
     state = box.values.toList();
   }
+
+  void updateBillSubscriptionFrequency(String billId, String newFrequency) {
+    final bill = box.get(billId);
+    if (bill != null) {
+      // Create a new Bill object with updated subscription type
+      final updatedBill = Bill(
+        id: bill.id,
+        imagePath: bill.imagePath,
+        vendor: bill.vendor,
+        date: bill.date,
+        total: bill.total,
+        ocrText: bill.ocrText,
+        categoryId: bill.categoryId,
+        currency: bill.currency,
+        subtotal: bill.subtotal,
+        tax: bill.tax,
+        notes: bill.notes,
+        tags: bill.tags,
+        location: bill.location,
+        title: bill.title,
+        subscriptionType: newFrequency,
+        createdAt: bill.createdAt,
+        updatedAt: DateTime.now(),
+      );
+      box.put(billId, updatedBill);
+      state = box.values.toList();
+    }
+  }
 }
 
 final billProvider = StateNotifierProvider<BillNotifier, List<Bill>>((ref) {

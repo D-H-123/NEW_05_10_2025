@@ -52,6 +52,14 @@ class Bill extends HiveObject {
   @HiveField(14)
   final String? location;
 
+  // User-friendly title for manual or edited entries
+  @HiveField(15)
+  final String? title;
+
+  // Subscription type to identify subscription bills
+  @HiveField(16)
+  final String? subscriptionType; // 'weekly', 'monthly', 'yearly', or null for non-subscriptions
+
   Bill({
     required this.id,
     required this.imagePath,
@@ -66,6 +74,8 @@ class Bill extends HiveObject {
     this.notes,
     this.tags,
     this.location,
+    this.title,
+    this.subscriptionType,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : ocrText = ocrText ?? 'Manual entry',

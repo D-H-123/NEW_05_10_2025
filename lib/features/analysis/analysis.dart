@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/widgets/modern_widgets.dart';
+import '../../core/services/category_service.dart';
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -468,11 +469,41 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
 
   Widget _buildCategoriesSection() {
     final categories = [
-      {'name': 'Food & Dining', 'amount': 487.32, 'percentage': 39, 'color': Colors.green, 'icon': Icons.restaurant},
-      {'name': 'Shopping', 'amount': 234.50, 'percentage': 19, 'color': Color(0xFF4facfe), 'icon': Icons.shopping_bag},
-      {'name': 'Transportation', 'amount': 156.78, 'percentage': 13, 'color': Colors.yellow, 'icon': Icons.directions_car},
-      {'name': 'Coffee', 'amount': 89.45, 'percentage': 7, 'color': Colors.orange, 'icon': Icons.coffee},
-      {'name': 'Home', 'amount': 278.95, 'percentage': 22, 'color': Colors.purple, 'icon': Icons.home},
+      {
+        'name': 'Food & Dining', 
+        'amount': 487.32, 
+        'percentage': 39, 
+        'color': CategoryService.getCategoryColor('Food & Dining'), 
+        'icon': CategoryService.getCategoryIcon('Food & Dining')
+      },
+      {
+        'name': 'Shopping', 
+        'amount': 234.50, 
+        'percentage': 19, 
+        'color': CategoryService.getCategoryColor('Shopping'), 
+        'icon': CategoryService.getCategoryIcon('Shopping')
+      },
+      {
+        'name': 'Transportation', 
+        'amount': 156.78, 
+        'percentage': 13, 
+        'color': CategoryService.getCategoryColor('Transportation'), 
+        'icon': CategoryService.getCategoryIcon('Transportation')
+      },
+      {
+        'name': 'Entertainment', 
+        'amount': 89.45, 
+        'percentage': 7, 
+        'color': CategoryService.getCategoryColor('Entertainment'), 
+        'icon': CategoryService.getCategoryIcon('Entertainment')
+      },
+      {
+        'name': 'Utilities', 
+        'amount': 278.95, 
+        'percentage': 22, 
+        'color': CategoryService.getCategoryColor('Utilities'), 
+        'icon': CategoryService.getCategoryIcon('Utilities')
+      },
     ];
 
     return Container(

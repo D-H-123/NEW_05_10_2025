@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../features/storage/bill/bill_provider.dart';
 import '../../features/storage/models/bill_model.dart';
 import '../../core/services/local_storage_service.dart';
+import '../../core/services/currency_service.dart';
 
 class PostCapturePage extends ConsumerStatefulWidget {
   final String imagePath;
@@ -58,9 +59,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
   
   // Common currencies for manual selection
   final List<String> _commonCurrencies = [
-    'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'SEK', 'NOK',
-    'DKK', 'PLN', 'CZK', 'HUF', 'RUB', 'BRL', 'MXN', 'INR', 'KRW', 'SGD',
-    'HKD', 'NZD', 'ZAR', 'TRY', 'THB', 'MYR', 'PHP', 'IDR', 'VND', 'TWD'
+    'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'CHF', 'INR', 'BRL'
   ];
 
   // Available categories for user selection
@@ -138,7 +137,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       _titleController.text = widget.detectedTitle ?? '';
       _totalController.text = widget.detectedTotal?.toStringAsFixed(2) ?? '';
       _detectedCurrency = widget.detectedCurrency;
-      _selectedCurrency = widget.detectedCurrency; // Only set if currency was detected
+      _selectedCurrency = widget.detectedCurrency ?? ref.read(currencyProvider).currencyCode;
       _selectedDate = widget.detectedDate ?? DateTime.now();
       
       // Set detected category for automatic selection
@@ -180,6 +179,9 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     print('🔍 MAGIC POST-CAPTURE: Title controller text: "${_titleController.text}"');
     print('🔍 MAGIC POST-CAPTURE: Total controller text: "${_totalController.text}"');
     print('🔍 MAGIC POST-CAPTURE: Detected currency set to: "$_detectedCurrency"');
+    if (_selectedCurrency == null || _selectedCurrency!.isEmpty) {
+      _selectedCurrency = ref.read(currencyProvider).currencyCode;
+    }
     
     // Force UI update
     if (mounted) {
@@ -255,8 +257,6 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
         return 'A\$';
       case 'CHF':
         return 'CHF';
-      case 'CNY':
-        return '¥';
       case 'INR':
         return '₹';
       case 'BRL':
@@ -318,7 +318,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime(1900), // Allow older dates for receipts
-      lastDate: DateTime.now().add(const Duration(days: 365)), // Allow some future dates
+      lastDate: DateTime.now(), // Restrict future dates - only current/past dates allowed
     );
     if (picked != null && picked != _selectedDate) {
       setState(() {

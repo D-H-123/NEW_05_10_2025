@@ -107,7 +107,7 @@ class OCRService {
     final imageWidth = image.width.toDouble();
     final imageHeight = image.height.toDouble();
     
-    print('🔍 OCR SERVICE: Image dimensions: ${imageWidth}x${imageHeight}');
+    print('🔍 OCR SERVICE: Image dimensions: ${imageWidth}x$imageHeight');
     
     String? vendor;
     double? amount;
@@ -501,7 +501,7 @@ class OCRService {
 
   /// Extract currency symbol from line
   String? _extractCurrencySymbol(String line) {
-    final currencySymbols = ['\$', '€', '£', '¥', '₹', 'USD', 'EUR', 'GBP', 'JPY', 'INR'];
+    final currencySymbols = ['\$', '€', '£', '¥', '₹', 'USD', 'EUR', 'GBP', 'INR'];
     
     for (final symbol in currencySymbols) {
       if (line.contains(symbol)) {

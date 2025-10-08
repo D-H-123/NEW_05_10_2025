@@ -360,7 +360,7 @@ class ImagePreprocessingService {
     const minDimension = 300;
     
     // Calculate optimal size
-    final scaleFactor = targetDPI / assumedOriginalDPI;
+    const scaleFactor = targetDPI / assumedOriginalDPI;
     int newWidth = (image.width * scaleFactor).round();
     int newHeight = (image.height * scaleFactor).round();
     
@@ -910,7 +910,7 @@ class ImagePreprocessingService {
     const assumedOriginalDPI = 72.0;
     const maxDimension = 2000; // Maximum dimension to prevent memory issues
     
-    final scaleFactor = targetDPI / assumedOriginalDPI;
+    const scaleFactor = targetDPI / assumedOriginalDPI;
     
     // Calculate new dimensions
     int newWidth = (image.width * scaleFactor).round();
@@ -926,7 +926,7 @@ class ImagePreprocessingService {
         newHeight = maxDimension;
         newWidth = (maxDimension * aspectRatio).round();
       }
-      print('⚠️ PHASE 3: Limiting dimensions to prevent memory issues: ${newWidth}x${newHeight}');
+      print('⚠️ PHASE 3: Limiting dimensions to prevent memory issues: ${newWidth}x$newHeight');
     }
     
     if (scaleFactor > 1.1 && (newWidth > image.width || newHeight > image.height)) {

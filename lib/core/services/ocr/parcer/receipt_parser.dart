@@ -3,6 +3,7 @@ import '../i_ocr_service.dart';
 import 'helpers/regex_util.dart';
 import 'helpers/line_heuristics.dart';
 import 'helpers/chain_database.dart';
+import '../../category_service.dart';
 
 class ParsedReceipt {
   final String? vendor;
@@ -77,7 +78,7 @@ class ReceiptParser {
           RegExp(r'\d+\.\d{2}').hasMatch(line) ||
           RegExp(r'\$\d+').hasMatch(line) ||
           RegExp(r'CHF\s*\d+').hasMatch(upperLine)) {
-        print('Line $i: "${line}"');
+        print('Line $i: "$line"');
       }
     }
     print('=' * 80);
@@ -89,16 +90,14 @@ class ReceiptParser {
 
     // Date detection
     print('🔍 MAGIC PARSER: Starting date detection...');
-    print('🔍 MAGIC PARSER: Text being analyzed for date: "${normalized.length > 200 ? normalized.substring(0, 200) + "..." : normalized}"');
+    print('🔍 MAGIC PARSER: Text being analyzed for date: "${normalized.length > 200 ? "${normalized.substring(0, 200)}..." : normalized}"');
     final date = _rx.findFirstDate(normalized);
     print('🔍 MAGIC PARSER: Detected date: $date');
 
     // Enhanced currency detection
     print('🔍 MAGIC PARSER: Starting currency detection...');
     String? currency = _rx.detectCurrency(normalized);
-    if (currency == null) {
-      currency = _rx.detectCurrency(normalized);
-    }
+    currency ??= _rx.detectCurrency(normalized);
     print('🔍 MAGIC PARSER: Detected currency: "$currency"');
 
     // Totals detection: use enhanced keyword-based detection with fallback
@@ -137,17 +136,29 @@ class ReceiptParser {
       category = ChainDatabase.getCategory(vendor);
       print('🔍 MAGIC PARSER: Chain database category for "$vendor": "$category"');
       
+      // Normalize category name using centralized service
+      if (category != null) {
+        category = CategoryService.normalizeCategory(category);
+        print('🔍 MAGIC PARSER: Normalized category: "$category"');
+      }
+      
       // Fallback to heuristic category detection
       if (category == null) {
         final vUp = vendor.toUpperCase();
         if (vUp.contains('WALMART')) category = 'Groceries';
         if (vUp.contains('TESCO')) category = 'Groceries';
-        if (vUp.contains('SHELL') || vUp.contains('BP')) category = 'Transport';
+        if (vUp.contains('SHELL') || vUp.contains('BP')) category = 'Transportation';
         if (vUp.contains('MCDONALD') || vUp.contains('STARBUCKS')) category = 'Food & Dining';
         print('🔍 MAGIC PARSER: Heuristic category for "$vendor": "$category"');
       }
     }
     category ??= _rx.inferCategoryFromText(normalized);
+    
+    // Normalize the final category
+    if (category != null) {
+      category = CategoryService.normalizeCategory(category);
+    }
+    
     print('🔍 MAGIC PARSER: Final detected category: "$category"');
 
     final result = ParsedReceipt(

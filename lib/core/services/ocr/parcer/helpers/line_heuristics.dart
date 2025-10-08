@@ -338,7 +338,7 @@ bool _looksLikeBusinessNamePart(String line) {
     // ENHANCED: Filter out product brand names
     for (final brand in productBrands) {
       if (upper == brand || upper.startsWith('$brand ') || upper.endsWith(' $brand') || 
-          upper.contains(' $brand ') || upper.startsWith('$brand')) {
+          upper.contains(' $brand ') || upper.startsWith(brand)) {
         print('🔍 FILTER: Filtered out product brand: "$line" (matched: $brand)');
         return true;
       }
@@ -512,7 +512,7 @@ bool _looksLikeBusinessNamePart(String line) {
     final numberCount = RegExp(r'\d').allMatches(cleanName).length;
     final totalChars = cleanName.replaceAll(RegExp(r'\s'), '').length;
     if (totalChars > 0 && (numberCount / totalChars) > 0.2) {
-      print('🔍 MAGIC VENDOR: Clean name still has too many numbers: "$cleanName" (${numberCount}/${totalChars} = ${numberCount/totalChars})');
+      print('🔍 MAGIC VENDOR: Clean name still has too many numbers: "$cleanName" ($numberCount/$totalChars = ${numberCount/totalChars})');
       return null;
     }
     

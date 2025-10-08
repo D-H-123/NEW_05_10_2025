@@ -567,7 +567,7 @@ class MlKitOcrService implements IOcrService {
     if (kOcrDebugLogs) {
       print('🔍 DEBUG: Raw OCR text extracted:');
       print('🔍 DEBUG: Text length: ${spatialRawText.length}');
-      print('🔍 DEBUG: First 500 characters: ${spatialRawText.length > 500 ? spatialRawText.substring(0, 500) + "..." : spatialRawText}');
+      print('🔍 DEBUG: First 500 characters: ${spatialRawText.length > 500 ? "${spatialRawText.substring(0, 500)}..." : spatialRawText}');
       print('🔍 DEBUG: Full text: $spatialRawText');
     }
     

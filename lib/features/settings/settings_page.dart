@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
 import '../auth/providers/auth_provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/services/currency_service.dart';
+import '../../core/widgets/currency_picker.dart';
 import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
 import '../../core/services/premium_service.dart';
@@ -22,6 +24,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   late bool _location;
   late bool _calendarResults;
   late bool _notes;
+  String? _selectedCurrencyCode;
 
   @override
   void initState() {
@@ -30,6 +33,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _location = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
     _calendarResults = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
     _notes = LocalStorageService.getBoolSetting(LocalStorageService.kNotes);
+    _selectedCurrencyCode = LocalStorageService.getStringSetting(LocalStorageService.kCurrencyCode);
   }
 
   @override
@@ -90,6 +94,59 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               
               const ResponsiveSpacer(height: 16),
               
+              // Default Currency
+              ResponsiveCard(
+                child: ListTile(
+                  leading: const Icon(Icons.currency_exchange),
+                  title: const Text('Default Currency'),
+                  subtitle: Consumer(
+                    builder: (context, ref, child) {
+                      final currentCode = _selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode;
+                      final symbol = ref.read(currencyProvider.notifier).symbolFor(currentCode);
+                      return Row(
+                        children: [
+                          Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Center(
+                              child: Text(
+                                symbol,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(currentCode),
+                        ],
+                      );
+                    },
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    final current = ref.read(currencyProvider).currencyCode;
+                    await showCurrencyPicker(
+                      context: context,
+                      selectedCode: _selectedCurrencyCode ?? current,
+                      onSelected: (code) async {
+                        await ref.read(currencyProvider.notifier).setCurrency(code);
+                        if (mounted) {
+                          setState(() {
+                            _selectedCurrencyCode = code;
+                          });
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+
               // Date Translation Setting
               ResponsiveCard(
                 child: _buildSettingTile(
@@ -965,7 +1022,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     borderRadius: AppTheme.mediumBorderRadius,
                   ),
                 ),
-                items: ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD']
+                items: ['USD', 'EUR', 'GBP', 'CAD', 'AUD']
                     .map((currency) => DropdownMenuItem(
                           value: currency,
                           child: Text(currency),

@@ -11,8 +11,12 @@ import 'package:url_launcher/url_launcher.dart';
 import 'bill_provider.dart';
 import '../../../core/widgets/modern_widgets.dart';
 import '../../../core/services/local_storage_service.dart';
+import '../../../core/services/category_service.dart';
 import '../../../core/services/premium_service.dart';
 import '../../../core/widgets/subscription_paywall.dart';
+import '../../../core/services/subscription_utils.dart';
+import '../../../core/widgets/filter_dropdown.dart';
+import '../../../core/widgets/subscription_badge.dart';
 
 class BillsPage extends ConsumerStatefulWidget {
   const BillsPage({super.key});
@@ -80,7 +84,7 @@ class _BillsPageState extends ConsumerState<BillsPage> {
             ),
             const SizedBox(height: 20),
             Text(
-              bill.vendor ?? 'Receipt Options',
+              bill.title?.isNotEmpty == true ? bill.title! : (bill.vendor ?? 'Receipt Options'),
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -116,7 +120,7 @@ class _BillsPageState extends ConsumerState<BillsPage> {
                 // Navigate to edit page
                 context.push('/post-capture', extra: {
                   'imagePath': bill.imagePath,
-                  'detectedTitle': bill.vendor,
+                  'detectedTitle': bill.title ?? bill.vendor,
                   'detectedTotal': bill.total,
                   'detectedCurrency': bill.currency,
                   'isEditing': true,
@@ -208,7 +212,7 @@ class _BillsPageState extends ConsumerState<BillsPage> {
           ),
         ),
         content: Text(
-          'Are you sure you want to delete "${bill.vendor ?? 'this receipt'}"? This action cannot be undone.',
+          'Are you sure you want to delete "${(bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'this receipt'}"? This action cannot be undone.',
           style: TextStyle(
             color: Colors.grey[600],
             fontSize: 16,
@@ -258,8 +262,29 @@ class _BillsPageState extends ConsumerState<BillsPage> {
     // Show success message
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${bill.vendor ?? 'Receipt'} deleted successfully'),
+        content: Text(
+          '${(bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Receipt'} deleted successfully'
+        ),
         backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+
+  void _updateSubscriptionFrequency(dynamic bill, String newFrequency) {
+    // Update the subscription frequency in your provider/database
+    ref.read(billProvider.notifier).updateBillSubscriptionFrequency(bill.id, newFrequency);
+    
+    // Show success message
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Subscription frequency changed to $newFrequency'
+        ),
+        backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
@@ -271,7 +296,7 @@ class _BillsPageState extends ConsumerState<BillsPage> {
   void _shareBill(dynamic bill) async {
     final String message = '''
 Receipt Details:
-Vendor: ${bill.vendor ?? 'N/A'}
+Title: ${(bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'N/A'}
 Date: ${DateFormat('MMM dd, yyyy').format(bill.date ?? DateTime.now())}
 Total: ${bill.total ?? 0.0} ${bill.currency ?? ''}
 OCR Text: ${bill.ocrText}
@@ -484,7 +509,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                 pw.SizedBox(height: 30),
                 
                 // Receipt Information
-                _buildPDFRow('Vendor:', bill.vendor ?? 'N/A'),
+                _buildPDFRow('Title:', (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'N/A'),
                 _buildPDFRow('Date:', DateFormat('MMM dd, yyyy').format(bill.date ?? DateTime.now())),
                 _buildPDFRow('Total:', '${bill.total ?? 0.0} ${bill.currency ?? ''}'),
                 _buildPDFRow('Tags:', bill.tags?.join(', ') ?? 'N/A'),
@@ -611,14 +636,14 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
   }
 
   Future<void> _shareViaEmail(dynamic bill) async {
-    final subject = 'Receipt: ${bill.vendor ?? 'Unknown Vendor'} - ${bill.total ?? 0.0} ${bill.currency ?? ''}';
+    final subject = 'Receipt: ${(bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Untitled'} - ${bill.total ?? 0.0} ${bill.currency ?? ''}';
     
          final body = '''
  Hello,
  
  Please find the receipt details below:
  
- Vendor: ${bill.vendor ?? 'N/A'}
+ Title: ${(bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'N/A'}
  Date: ${DateFormat('MMM dd, yyyy').format(bill.date ?? DateTime.now())}
  Total: ${bill.total ?? 0.0} ${bill.currency ?? ''}
  Tags: ${bill.tags?.join(', ') ?? 'N/A'}
@@ -702,6 +727,87 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     return bills.where((bill) => _getBillCategory(bill) == source).length;
   }
 
+  // Helper methods for category display - now using centralized service
+  Color _getCategoryColor(String category) {
+    return CategoryService.getCategoryColor(category);
+  }
+
+  IconData _getCategoryIcon(String category) {
+    return CategoryService.getCategoryIcon(category);
+  }
+
+  // Filter item builders for new dropdown
+  List<FilterItem> _buildSourceFilterItems(List<dynamic> filteredBills) {
+    return [
+      FilterItem(
+        value: 'all',
+        label: 'All Sources',
+        icon: Icons.all_inclusive,
+        count: _getSourceCount(filteredBills, 'all'),
+      ),
+      FilterItem(
+        value: 'scanned',
+        label: 'Scanned',
+        icon: Icons.camera_alt,
+        count: _getSourceCount(filteredBills, 'scanned'),
+      ),
+      FilterItem(
+        value: 'manual',
+        label: 'Manual',
+        icon: Icons.edit_note,
+        count: _getSourceCount(filteredBills, 'manual'),
+      ),
+    ];
+  }
+
+  List<FilterItem> _buildCategoryFilterItems(List<dynamic> filteredBills) {
+    final items = <FilterItem>[
+      FilterItem(
+        value: 'all',
+        label: 'All Categories',
+        icon: Icons.all_inclusive,
+        count: _getCategoryCount(filteredBills, 'all'),
+      ),
+    ];
+
+    // Add unique categories with their icons and colors
+    for (final category in _getUniqueCategories(filteredBills)) {
+      final categoryInfo = CategoryService.getCategoryInfo(category);
+      items.add(FilterItem(
+        value: category,
+        label: category,
+        icon: categoryInfo?.icon ?? Icons.label,
+        count: _getCategoryCount(filteredBills, category),
+        color: categoryInfo?.color,
+      ));
+    }
+
+    return items;
+  }
+
+  List<FilterItem> _buildLocationFilterItems(List<dynamic> filteredBills) {
+    final items = <FilterItem>[
+      FilterItem(
+        value: 'all',
+        label: 'All Locations',
+        icon: Icons.all_inclusive,
+        count: _getLocationCount(filteredBills, 'all'),
+      ),
+    ];
+
+    // Add unique locations
+    for (final location in _getUniqueLocations(filteredBills)) {
+      items.add(FilterItem(
+        value: location,
+        label: location,
+        icon: Icons.location_on,
+        count: _getLocationCount(filteredBills, location),
+      ));
+    }
+
+    return items;
+  }
+
 
   // Responsive Filter Layout
   Widget _buildResponsiveFilterLayout(BuildContext context, List<dynamic> filteredBills) {
@@ -714,31 +820,53 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           Row(
             children: [
               Expanded(
-                child: _buildFilterButton(
+                child: FilterDropdown(
+                  selectedValue: _selectedSource,
+                  items: _buildSourceFilterItems(filteredBills),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedSource = value ?? 'all';
+                    });
+                  },
                   label: 'Source',
                   icon: Icons.source,
-                  selectedValue: _getSourceDisplayName(_selectedSource),
-                  onTap: () => _showSourceDropdown(context, filteredBills),
+                  showIcons: true,
+                  showColors: false,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _buildFilterButton(
+                child: FilterDropdown(
+                  selectedValue: _selectedCategoryFilter,
+                  items: _buildCategoryFilterItems(filteredBills),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCategoryFilter = value ?? 'all';
+                    });
+                  },
                   label: 'Category',
                   icon: Icons.category,
-                  selectedValue: _getCategoryDisplayName(_selectedCategoryFilter),
-                  onTap: () => _showCategoryDropdown(context, filteredBills),
+                  showIcons: true,
+                  showColors: true,
+                  isCategoryFilter: true, // This will remove icons and use category colors
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           // Second row: Location (full width)
-          _buildFilterButton(
+          FilterDropdown(
+            selectedValue: _selectedLocation,
+            items: _buildLocationFilterItems(filteredBills),
+            onChanged: (value) {
+              setState(() {
+                _selectedLocation = value ?? 'all';
+              });
+            },
             label: 'Location',
             icon: Icons.location_on,
-            selectedValue: _getLocationDisplayName(_selectedLocation),
-            onTap: () => _showLocationDropdown(context, filteredBills),
+            showIcons: true,
+            showColors: false,
           ),
         ],
       );
@@ -747,20 +875,35 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
       return Row(
         children: [
           Expanded(
-            child: _buildFilterButton(
+            child: FilterDropdown(
+              selectedValue: _selectedSource,
+              items: _buildSourceFilterItems(filteredBills),
+              onChanged: (value) {
+                setState(() {
+                  _selectedSource = value ?? 'all';
+                });
+              },
               label: 'Source',
               icon: Icons.source,
-              selectedValue: _getSourceDisplayName(_selectedSource),
-              onTap: () => _showSourceDropdown(context, filteredBills),
+              showIcons: true,
+              showColors: false,
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: _buildFilterButton(
+            child: FilterDropdown(
+              selectedValue: _selectedCategoryFilter,
+              items: _buildCategoryFilterItems(filteredBills),
+              onChanged: (value) {
+                setState(() {
+                  _selectedCategoryFilter = value ?? 'all';
+                });
+              },
               label: 'Category',
               icon: Icons.category,
-              selectedValue: _getCategoryDisplayName(_selectedCategoryFilter),
-              onTap: () => _showCategoryDropdown(context, filteredBills),
+              showIcons: true,
+              showColors: true,
+              isCategoryFilter: true, // This will remove icons and use category colors
             ),
           ),
         ],
@@ -768,282 +911,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     }
   }
 
-  // Compact Filter Button
-  Widget _buildFilterButton({
-    required String label,
-    required IconData icon,
-    required String selectedValue,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey[300]!),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 2,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: Colors.blue[600]),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-            Text(
-              label,
-              style: TextStyle(
-                      fontSize: 10,
-                fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    selectedValue,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey[800],
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.keyboard_arrow_down, size: 16, color: Colors.grey[600]),
-          ],
-        ),
-      ),
-    );
-  }
 
-  // Display name helpers
-  String _getSourceDisplayName(String source) {
-    switch (source) {
-      case 'all': return 'All Sources';
-      case 'scanned': return 'Scanned';
-      case 'manual': return 'Manual';
-      default: return 'All Sources';
-    }
-  }
-
-  String _getLocationDisplayName(String location) {
-    return location == 'all' ? 'All Locations' : location;
-  }
-
-  String _getCategoryDisplayName(String category) {
-    return category == 'all' ? 'All Categories' : category;
-  }
-
-  // Dropdown show methods - using normal dropdowns
-  void _showSourceDropdown(BuildContext context, List<dynamic> filteredBills) {
-    final RenderBox buttonBox = context.findRenderObject() as RenderBox;
-    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final RelativeRect position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        buttonBox.localToGlobal(Offset.zero, ancestor: overlay),
-        buttonBox.localToGlobal(buttonBox.size.bottomRight(Offset.zero), ancestor: overlay),
-      ),
-      Offset.zero & overlay.size,
-    );
-
-    showMenu<String>(
-      context: context,
-      position: position,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 8,
-      items: _buildSourceMenuItems(filteredBills),
-    ).then((value) {
-      if (value != null) {
-        setState(() {
-          _selectedSource = value;
-        });
-      }
-    });
-  }
-
-  void _showLocationDropdown(BuildContext context, List<dynamic> filteredBills) {
-    final RenderBox buttonBox = context.findRenderObject() as RenderBox;
-    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final RelativeRect position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        buttonBox.localToGlobal(Offset.zero, ancestor: overlay),
-        buttonBox.localToGlobal(buttonBox.size.bottomRight(Offset.zero), ancestor: overlay),
-      ),
-      Offset.zero & overlay.size,
-    );
-
-    showMenu<String>(
-      context: context,
-      position: position,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 8,
-      items: _buildLocationMenuItems(filteredBills),
-    ).then((value) {
-      if (value != null) {
-        setState(() {
-          _selectedLocation = value;
-        });
-      }
-    });
-  }
-
-  void _showCategoryDropdown(BuildContext context, List<dynamic> filteredBills) {
-    final RenderBox buttonBox = context.findRenderObject() as RenderBox;
-    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final RelativeRect position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        buttonBox.localToGlobal(Offset.zero, ancestor: overlay),
-        buttonBox.localToGlobal(buttonBox.size.bottomRight(Offset.zero), ancestor: overlay),
-      ),
-      Offset.zero & overlay.size,
-    );
-
-    showMenu<String>(
-      context: context,
-      position: position,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 8,
-      items: _buildCategoryMenuItems(filteredBills),
-    ).then((value) {
-      if (value != null) {
-        setState(() {
-          _selectedCategoryFilter = value;
-        });
-      }
-    });
-  }
-
-  // Menu item builders
-  List<PopupMenuEntry<String>> _buildSourceMenuItems(List<dynamic> filteredBills) {
-    return [
-      _buildMenuItem(
-        'all',
-        'All Sources',
-        Icons.all_inclusive,
-        _getSourceCount(filteredBills, 'all'),
-        _selectedSource == 'all',
-      ),
-      _buildMenuItem(
-        'scanned',
-        'Scanned',
-        Icons.camera_alt,
-        _getSourceCount(filteredBills, 'scanned'),
-        _selectedSource == 'scanned',
-      ),
-      _buildMenuItem(
-        'manual',
-        'Manual',
-        Icons.edit_note,
-        _getSourceCount(filteredBills, 'manual'),
-        _selectedSource == 'manual',
-      ),
-    ];
-  }
-
-  List<PopupMenuEntry<String>> _buildLocationMenuItems(List<dynamic> filteredBills) {
-    return [
-      _buildMenuItem(
-        'all',
-        'All Locations',
-        Icons.all_inclusive,
-        _getLocationCount(filteredBills, 'all'),
-        _selectedLocation == 'all',
-      ),
-      ..._getUniqueLocations(filteredBills).map((location) => 
-        _buildMenuItem(
-          location,
-          location,
-          Icons.place,
-          _getLocationCount(filteredBills, location),
-          _selectedLocation == location,
-        ),
-      ),
-    ];
-  }
-
-  List<PopupMenuEntry<String>> _buildCategoryMenuItems(List<dynamic> filteredBills) {
-    return [
-      _buildMenuItem(
-        'all',
-        'All Categories',
-        Icons.all_inclusive,
-        _getCategoryCount(filteredBills, 'all'),
-        _selectedCategoryFilter == 'all',
-      ),
-      ..._getUniqueCategories(filteredBills).map((category) => 
-        _buildMenuItem(
-          category,
-          category,
-          Icons.label,
-          _getCategoryCount(filteredBills, category),
-          _selectedCategoryFilter == category,
-        ),
-      ),
-    ];
-  }
-
-  PopupMenuItem<String> _buildMenuItem(
-    String value,
-    String label,
-    IconData icon,
-    int count,
-    bool isSelected,
-  ) {
-    return PopupMenuItem<String>(
-      value: value,
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.blue[600], size: 18),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? Colors.blue[700] : Colors.grey[800],
-              ),
-            ),
-          ),
-          if (count > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.blue[100],
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue[700],
-                ),
-              ),
-            ),
-          const SizedBox(width: 8),
-          if (isSelected)
-            Icon(Icons.check, color: Colors.green[600], size: 18),
-        ],
-      ),
-    );
-  }
 
   Widget _buildEmptyState() {
     // Show different empty state based on selected category
@@ -1084,7 +952,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               
               // Subtitle message
               Text(
-                'Create manual expenses, subscriptions, or SEPA payments\nusing the plus button on the homepage.',
+                'Create manual expenses or subscriptions\nusing the plus button on the homepage.',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey[600],
@@ -1332,7 +1200,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
       
       // Finally filter by search query
        final query = _searchQuery.toLowerCase();
-       return (bill.vendor?.toLowerCase().contains(query) ?? false) ||
+      return ((bill.title ?? bill.vendor)?.toLowerCase().contains(query) ?? false) ||
               (bill.tags?.any((tag) => tag.toLowerCase().contains(query)) ?? false);
     }).toList();
 
@@ -1345,10 +1213,10 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
         filteredBills.sort((a, b) => (a.date ?? DateTime.now()).compareTo(b.date ?? DateTime.now()));
         break;
       case 'name_asc':
-        filteredBills.sort((a, b) => (a.vendor ?? '').compareTo(b.vendor ?? ''));
+        filteredBills.sort((a, b) => ((a.title ?? a.vendor) ?? '').compareTo((b.title ?? b.vendor) ?? ''));
         break;
       case 'name_desc':
-        filteredBills.sort((a, b) => (b.vendor ?? '').compareTo(a.vendor ?? ''));
+        filteredBills.sort((a, b) => ((b.title ?? b.vendor) ?? '').compareTo((a.title ?? a.vendor) ?? ''));
         break;
       case 'total_desc':
         filteredBills.sort((a, b) => (b.total ?? 0.0).compareTo(a.total ?? 0.0));
@@ -1358,24 +1226,37 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
         break;
     }
 
-    // Group bills by year and month
-    final Map<String, Map<String, List<dynamic>>> groupedBills = {};
+    // Group bills by year and month, then by category
+    final Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills = {};
     for (final bill in filteredBills) {
       final year = DateFormat('yyyy').format(bill.date ?? DateTime.now());
       final month = DateFormat('MMMM yyyy').format(bill.date ?? DateTime.now());
+      final category = bill.tags?.isNotEmpty == true ? bill.tags!.first : 'Other';
       
       if (!groupedBills.containsKey(year)) {
         groupedBills[year] = {};
       }
       if (!groupedBills[year]!.containsKey(month)) {
-        groupedBills[year]![month] = [];
+        groupedBills[year]![month] = {};
       }
-      groupedBills[year]![month]!.add(bill);
+      if (!groupedBills[year]![month]!.containsKey(category)) {
+        groupedBills[year]![month]![category] = [];
+      }
+      groupedBills[year]![month]![category]!.add(bill);
     }
 
     // Sort years and months
     final sortedYears = groupedBills.keys.toList()..sort((a, b) => b.compareTo(a));
     
+    // Compute subscription remaining days label
+    final DateTime? subStart = PremiumService.subscriptionStartDate;
+    final String subType = PremiumService.subscriptionType;
+    final int totalCycleDays = SubscriptionUtils.getCycleDays(subType);
+    final int remainingDays = (subStart != null && totalCycleDays > 0)
+        ? SubscriptionUtils.getRemainingDays(subStart, subType)
+        : 0;
+    final bool showRemainingLabel = subStart != null && totalCycleDays > 0;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -1394,127 +1275,78 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           onPressed: () => context.go('/home'),
         ),
         actions: [
-          // View Toggle Buttons
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // List View Button
-              Container(
-                margin: const EdgeInsets.only(right: 8),
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _viewMode = 'list';
-                    });
-                  },
-                  icon: Icon(
-                    Icons.list,
-                    size: 18,
-                    color: _viewMode == 'list' ? Colors.white : Colors.grey[600],
+          // Calendar View Button (only if calendar integration is enabled)
+          if (_isCalendarIntegrationEnabled) ...[
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _viewMode = 'calendar';
+                  });
+                },
+                icon: Icon(
+                  Icons.calendar_month,
+                  size: 18,
+                  color: _viewMode == 'calendar' ? Colors.white : Colors.blue[600],
+                ),
+                label: Text(
+                  'Calendar',
+                  style: TextStyle(
+                    color: _viewMode == 'calendar' ? Colors.white : Colors.blue[600],
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
                   ),
-                  label: Text(
-                    'List',
-                    style: TextStyle(
-                      color: _viewMode == 'list' ? Colors.white : Colors.grey[600],
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _viewMode == 'list' 
-                        ? const Color(0xFF4facfe) 
-                        : Colors.grey[100],
-                    foregroundColor: _viewMode == 'list' 
-                        ? Colors.white 
-                        : Colors.grey[600],
-                    elevation: _viewMode == 'list' ? 2 : 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      side: BorderSide(
-                        color: _viewMode == 'list' 
-                            ? const Color(0xFF4facfe) 
-                            : Colors.grey[300]!,
-                        width: 1,
-                      ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _viewMode == 'calendar' 
+                      ? const Color(0xFF4facfe) 
+                      : Colors.blue[50],
+                  foregroundColor: _viewMode == 'calendar' 
+                      ? Colors.white 
+                      : Colors.blue[600],
+                  elevation: _viewMode == 'calendar' ? 2 : 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                      color: _viewMode == 'calendar' 
+                          ? const Color(0xFF4facfe) 
+                          : Colors.blue[200]!,
+                      width: 1,
                     ),
                   ),
                 ),
               ),
-              // Calendar View Button (only if calendar integration is enabled)
-              if (_isCalendarIntegrationEnabled) ...[
-                Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _viewMode = 'calendar';
-                      });
-                    },
-                    icon: Icon(
-                      Icons.calendar_month,
-                      size: 18,
-                      color: _viewMode == 'calendar' ? Colors.white : Colors.blue[600],
-                    ),
-                    label: Text(
-                      'Calendar',
-                      style: TextStyle(
-                        color: _viewMode == 'calendar' ? Colors.white : Colors.blue[600],
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _viewMode == 'calendar' 
-                          ? const Color(0xFF4facfe) 
-                          : Colors.blue[50],
-                      foregroundColor: _viewMode == 'calendar' 
-                          ? Colors.white 
-                          : Colors.blue[600],
-                      elevation: _viewMode == 'calendar' ? 2 : 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        side: BorderSide(
-                          color: _viewMode == 'calendar' 
-                              ? const Color(0xFF4facfe) 
-                              : Colors.blue[200]!,
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                  ),
+            ),
+            // Premium indicator for calendar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.amber[400]!, Colors.amber[600]!],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                // Premium indicator for calendar
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.amber[400]!, Colors.amber[600]!],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.star, size: 10, color: Colors.white),
+                  const SizedBox(width: 2),
+                  Text(
+                    'Premium',
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.star, size: 10, color: Colors.white),
-                      const SizedBox(width: 2),
-                      Text(
-                        'Premium',
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
+                ],
+              ),
+            ),
+          ],
           PopupMenuButton<String>(
             icon: const Icon(Icons.sort, color: Colors.black87),
             onSelected: (value) {
@@ -1533,8 +1365,10 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
+          Column(
+            children: [
           // Search Bar
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -1561,9 +1395,64 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
             child: _viewMode == 'list' 
                 ? _buildListView(filteredBills, groupedBills, sortedYears)
                 : _buildCalendarView(filteredBills),
-                                          ),
-                                        ],
-                                      ),
+          ),
+        ],
+      ),
+          // Bottom-right subtle remaining days label
+          if (showRemainingLabel)
+            Positioned(
+              right: 10,
+              bottom: 12 + kBottomNavigationBarHeight + MediaQuery.of(context).padding.bottom,
+              child: Opacity(
+                opacity: 0.85,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.withOpacity(0.15)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Tiny progress indicator
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          value: totalCycleDays > 0
+                              ? remainingDays / totalCycleDays
+                              : null,
+                          backgroundColor: Colors.red.withOpacity(0.15),
+                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        remainingDays == 1
+                            ? '1 day left until renewal'
+                            : '$remainingDays days remaining to renew',
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: ModernBottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: (index) {
@@ -1616,7 +1505,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
   }
 
   // Build List View (existing functionality)
-  Widget _buildListView(List<dynamic> filteredBills, Map<String, Map<String, List<dynamic>>> groupedBills, List<String> sortedYears) {
+  Widget _buildListView(List<dynamic> filteredBills, Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills, List<String> sortedYears) {
     return Column(
       children: [
           // Organized Filter Section - Only show in list view
@@ -1691,49 +1580,6 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
             ),
           ],
           
-                     // Info text
-           Padding(
-             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-             child: Column(
-               crossAxisAlignment: CrossAxisAlignment.start,
-               children: [
-                 Row(
-                   children: [
-                     Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
-                     const SizedBox(width: 8),
-                     Text(
-                       _selectedCategory == 'manual' 
-                           ? 'Manual Entries: Expenses, subscriptions, and SEPA payments created via plus button'
-                           : _selectedCategory == 'scanned'
-                               ? 'Scanned Receipts: Camera-scanned receipts with OCR text'
-                               : 'All entries: Both scanned receipts and manual entries',
-                       style: TextStyle(
-                         fontSize: 12,
-                         color: Colors.grey[600],
-                         fontStyle: FontStyle.italic,
-                       ),
-                     ),
-                   ],
-                 ),
-                 const SizedBox(height: 4),
-                 Padding(
-                   padding: const EdgeInsets.only(left: 24),
-                   child: Text(
-                     _selectedCategory == 'manual'
-                         ? '💡 These entries are created manually from the homepage plus button'
-                         : _selectedCategory == 'scanned'
-                             ? '💡 These receipts are scanned using the camera'
-                             : '💡 Use tabs above to filter between different entry types',
-                     style: TextStyle(
-                       fontSize: 11,
-                       color: Colors.grey[500],
-                       fontStyle: FontStyle.italic,
-                     ),
-                   ),
-                 ),
-               ],
-             ),
-           ),
           
           // Year/Month Filter
           if (groupedBills.isNotEmpty) ...[
@@ -1829,7 +1675,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: months.map((month) {
-                          final monthBills = groupedBills[year]![month]!;
+                          final monthCategories = groupedBills[year]![month]!;
                           
                           // Apply year/month filter
                           if (_selectedYear != null && _selectedYear != year) return const SizedBox.shrink();
@@ -1849,115 +1695,207 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                   ),
                                 ),
                               ),
-                              ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: monthBills.length,
-                                itemBuilder: (context, index) {
-                                  final bill = monthBills[index];
-                                  return GestureDetector(
-                                    onTap: () {
-                                      _showBillOptions(context, bill);
-                                    },
-                                    onLongPress: () {
-                                      _showBillOptions(context, bill);
-                                    },
-                                    child: Container(
-                                      margin: const EdgeInsets.only(bottom: 12),
-                                      height: 120,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(12),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.grey.withOpacity(0.2),
-                                            spreadRadius: 1,
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          // Receipt Image
-                                          Container(
-                                            width: 100,
-                                            height: 120,
-                                            decoration: BoxDecoration(
-                                              borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-                                              image: DecorationImage(
-                                                image: FileImage(File(bill.imagePath)),
-                                                fit: BoxFit.cover,
+                              // Group by category within each month
+                              ...monthCategories.entries.map((categoryEntry) {
+                                final categoryBills = categoryEntry.value;
+                                
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Bills in this category
+                                    ListView.builder(
+                                      shrinkWrap: true,
+                                      physics: const NeverScrollableScrollPhysics(),
+                                      itemCount: categoryBills.length,
+                                      itemBuilder: (context, index) {
+                                        final bill = categoryBills[index];
+                                        return GestureDetector(
+                                          onTap: () {
+                                            _showBillOptions(context, bill);
+                                          },
+                                          onLongPress: () {
+                                            _showBillOptions(context, bill);
+                                          },
+                                          child: Container(
+                                            margin: const EdgeInsets.only(bottom: 8),
+                                            child: SubscriptionCardDecoration(
+                                              isSubscription: bill.subscriptionType != null,
+                                              subscriptionType: bill.subscriptionType,
+                                              onFrequencyChanged: (newFrequency) {
+                                                _updateSubscriptionFrequency(bill, newFrequency);
+                                              },
+                                              child: Container(
+                                              height: 100,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.circular(12),
                                               ),
+                                            child: Row(
+                                              children: [
+                                                // Receipt Image (LEFT SIDE - UNCHANGED)
+                                                Container(
+                                                  width: 80,
+                                                  height: 100,
+                                                  decoration: BoxDecoration(
+                                                    borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+                                                    image: DecorationImage(
+                                                      image: FileImage(File(bill.imagePath)),
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                                  ),
+                                                ),
+                                                
+                                                // Bill Details
+                                                Expanded(
+                                                  child: Padding(
+                                                    padding: const EdgeInsets.all(12),
+                                                    child: Row(
+                                                      children: [
+                                                        // Left side: Title, Date, Amount
+                                                        Expanded(
+                                                          flex: 3,
+                                                          child: Column(
+                                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                            children: [
+                                                              // Title (bold)
+                                                              Text(
+                                                                (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
+                                                                style: const TextStyle(
+                                                                  fontWeight: FontWeight.bold,
+                                                                  fontSize: 16,
+                                                                  color: Colors.black87,
+                                                                ),
+                                                                maxLines: 1,
+                                                                overflow: TextOverflow.ellipsis,
+                                                              ),
+                                                              // Date (small)
+                                                              Text(
+                                                                DateFormat('MMM dd, yyyy').format(bill.date ?? DateTime.now()),
+                                                                style: TextStyle(
+                                                                  color: Colors.grey[600],
+                                                                  fontSize: 12,
+                                                                ),
+                                                              ),
+                                                              // Amount (highlighted)
+                                                              Text(
+                                                                '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
+                                                                style: const TextStyle(
+                                                                  color: Color(0xFF4facfe),
+                                                                  fontSize: 16,
+                                                                  fontWeight: FontWeight.bold,
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                        
+                                                        // Right side: Categories as small colored labels (TOP-RIGHT)
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Column(
+                                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                                            mainAxisAlignment: MainAxisAlignment.start,
+                                                            children: [
+                                                              if (bill.tags != null && bill.tags!.isNotEmpty)
+                                                                Wrap(
+                                                                  alignment: WrapAlignment.end,
+                                                                  spacing: 4,
+                                                                  runSpacing: 4,
+                                                                  children: bill.tags!.take(3).map<Widget>((tag) => Container(
+                                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                                    decoration: BoxDecoration(
+                                                                      color: _getCategoryColor(tag).withOpacity(0.15),
+                                                                      borderRadius: BorderRadius.circular(12),
+                                                                      border: Border.all(
+                                                                        color: _getCategoryColor(tag).withOpacity(0.4),
+                                                                        width: 1,
+                                                                      ),
+                                                                      boxShadow: [
+                                                                        BoxShadow(
+                                                                          color: _getCategoryColor(tag).withOpacity(0.1),
+                                                                          blurRadius: 4,
+                                                                          offset: const Offset(0, 2),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                    child: Row(
+                                                                      mainAxisSize: MainAxisSize.min,
+                                                                      children: [
+                                                                        Icon(
+                                                                          _getCategoryIcon(tag),
+                                                                          size: 12,
+                                                                          color: _getCategoryColor(tag),
+                                                                        ),
+                                                                        const SizedBox(width: 4),
+                                                                        Text(
+                                                                          tag,
+                                                                          style: TextStyle(
+                                                                            fontSize: 11,
+                                                                            color: _getCategoryColor(tag),
+                                                                            fontWeight: FontWeight.w600,
+                                                                          ),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                  )).toList(),
+                                                                )
+                                                              else
+                                                                Container(
+                                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                                  decoration: BoxDecoration(
+                                                                    color: Colors.grey.withOpacity(0.15),
+                                                                    borderRadius: BorderRadius.circular(12),
+                                                                    border: Border.all(
+                                                                      color: Colors.grey.withOpacity(0.4),
+                                                                      width: 1,
+                                                                    ),
+                                                                    boxShadow: [
+                                                                      BoxShadow(
+                                                                        color: Colors.grey.withOpacity(0.1),
+                                                                        blurRadius: 4,
+                                                                        offset: const Offset(0, 2),
+                                                                      ),
+                                                                    ],
+                                                                  ),
+                                                                  child: Row(
+                                                                    mainAxisSize: MainAxisSize.min,
+                                                                    children: [
+                                                                      Icon(
+                                                                        Icons.label,
+                                                                        size: 12,
+                                                                        color: Colors.grey[600],
+                                                                      ),
+                                                                      const SizedBox(width: 4),
+                                                                      Text(
+                                                                        'Other',
+                                                                        style: TextStyle(
+                                                                          fontSize: 11,
+                                                                          color: Colors.grey[600],
+                                                                          fontWeight: FontWeight.w600,
+                                                                        ),
+                                                                      ),
+                                                                    ],
+                                                                  ),
+                                                                ),
+                                                              // Spacer to push categories to top
+                                                              const Spacer(),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                          
-                                          // Bill Details
-                                          Expanded(
-                                            child: Padding(
-                                              padding: const EdgeInsets.all(16),
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text(
-                                                        bill.vendor ?? 'Unknown Vendor',
-                                                        style: const TextStyle(
-                                                          fontWeight: FontWeight.bold,
-                                                          fontSize: 16,
-                                                          color: Colors.black87,
-                                                        ),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                      const SizedBox(height: 4),
-                                                      Text(
-                                                        DateFormat('MMM dd, yyyy').format(bill.date ?? DateTime.now()),
-                                                        style: TextStyle(
-                                                          color: Colors.grey[600],
-                                                          fontSize: 14,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  Row(
-                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                    children: [
-                                                      Text(
-                                                        '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
-                                                        style: const TextStyle(
-                                                          color: Color(0xFF4facfe),
-                                                          fontSize: 18,
-                                                          fontWeight: FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                      Container(
-                                                        padding: const EdgeInsets.all(4),
-                                                        decoration: BoxDecoration(
-                                                          color: Colors.grey[100],
-                                                          borderRadius: BorderRadius.circular(4),
-                                                        ),
-                                                        child: Icon(
-                                                          Icons.touch_app,
-                                                          color: Colors.grey[600],
-                                                          size: 16,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
+                                        ),
+                                      ));
+                                    },
+                                  ),
+                                  ]);
+                              }).toList(),
                             ],
                           );
                         }).toList(),
@@ -2058,7 +1996,13 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                         margin: const EdgeInsets.only(right: 8),
                         child: GestureDetector(
                           onTap: () => _showBillOptions(context, bill),
-                          child: Card(
+                          child: SubscriptionCardDecoration(
+                            isSubscription: bill.subscriptionType != null,
+                            subscriptionType: bill.subscriptionType,
+                            onFrequencyChanged: (newFrequency) {
+                              _updateSubscriptionFrequency(bill, newFrequency);
+                            },
+                            child: Card(
                             child: Column(
                               children: [
                                 Expanded(
@@ -2075,9 +2019,11 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                 Padding(
                                   padding: const EdgeInsets.all(8),
                                   child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
+                                      // Title (bold)
                                       Text(
-                                        bill.vendor ?? 'Unknown',
+                                        (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
                                         style: const TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
@@ -2085,13 +2031,72 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
+                                      const SizedBox(height: 2),
+                                      // Date (small)
+                                      Text(
+                                        DateFormat('MMM dd').format(bill.date ?? DateTime.now()),
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      // Amount (highlighted)
                                       Text(
                                         '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
                                         style: const TextStyle(
                                           fontSize: 10,
                                           color: Color(0xFF4facfe),
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
+                                      const SizedBox(height: 4),
+                                      // Categories as small colored labels (TOP-RIGHT)
+                                      if (bill.tags != null && bill.tags!.isNotEmpty)
+                                        Align(
+                                          alignment: Alignment.topRight,
+                                          child: Wrap(
+                                            spacing: 2,
+                                            runSpacing: 1,
+                                            children: bill.tags!.take(2).map<Widget>((tag) => Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: _getCategoryColor(tag).withOpacity(0.15),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: _getCategoryColor(tag).withOpacity(0.4),
+                                                  width: 0.8,
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: _getCategoryColor(tag).withOpacity(0.1),
+                                                    blurRadius: 2,
+                                                    offset: const Offset(0, 1),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    _getCategoryIcon(tag),
+                                                    size: 8,
+                                                    color: _getCategoryColor(tag),
+                                                  ),
+                                                  const SizedBox(width: 2),
+                                                  Text(
+                                                    tag,
+                                                    style: TextStyle(
+                                                      fontSize: 8,
+                                                      color: _getCategoryColor(tag),
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            )).toList(),
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -2099,6 +2104,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                             ),
                           ),
                         ),
+                      ),
                       );
                     },
                   ),

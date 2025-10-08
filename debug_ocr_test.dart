@@ -7,7 +7,7 @@ void main() async {
   print('🔍 DEBUG: Starting OCR pipeline debug test');
   
   // Test with the provided receipt image
-  final imagePath = 'assets/test_receipts/ReceiptSwiss.jpg';
+  const imagePath = 'assets/test_receipts/ReceiptSwiss.jpg';
   final imageFile = File(imagePath);
   
   if (!imageFile.existsSync()) {

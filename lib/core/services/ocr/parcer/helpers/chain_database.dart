@@ -28,7 +28,7 @@ class ChainInfo {
 
 class ChainDatabase {
   static Map<String, ChainInfo>? _chains;
-  static Map<String, String> _vendorCache = {};
+  static final Map<String, String> _vendorCache = {};
   
   // International company name formats
   static const Map<String, String> _companyFormats = {

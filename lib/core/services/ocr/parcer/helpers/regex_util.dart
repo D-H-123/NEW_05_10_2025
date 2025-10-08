@@ -1,5 +1,6 @@
 // lib/services/ocr/parser/helpers/optimized_regex_util.dart
 import 'package:intl/intl.dart';
+import '../../../category_service.dart';
 
 class AmountMatch {
   final double amount;
@@ -215,11 +216,9 @@ class RegexUtil{
     'USD': ['\$', 'USD', 'US\$', 'DOLLAR', 'DOLLARS', 'US DOLLAR'],
     'EUR': ['€', 'EUR', 'EURO', 'EUROS'],
     'GBP': ['£', 'GBP', 'POUND', 'POUNDS', 'STERLING'],
-    'JPY': ['¥', 'JPY', 'YEN'],
     'CAD': ['CAD', 'C\$', 'CANADIAN', 'CAN\$'],
     'AUD': ['AUD', 'A\$', 'AUSTRALIAN', 'AUS\$'],
     'CHF': ['CHF', 'FRANC', 'SWISS'],
-    'CNY': ['CNY', '¥', 'YUAN', 'RMB'],
     'INR': ['₹', 'INR', 'RUPEE', 'RUPEES', 'RS'],
     'KRW': ['₩', 'KRW', 'WON'],
     'RUB': ['₽', 'RUB', 'RUBLE', 'RUBLES'],
@@ -842,7 +841,9 @@ bool _isObviousItemLine(String line) {
   
   // Item description patterns
   if (RegExp(r'^[A-Za-z][a-z\s]*\s+\$\d+\.\d{2}$').hasMatch(trimmed) && 
-      trimmed.length > 15) return true;
+      trimmed.length > 15) {
+    return true;
+  }
   
   // Lines that contain item-like words
   final itemWords = ['BURGER', 'PIZZA', 'DRINK', 'COFFEE', 'SANDWICH', 'SALAD', 'BOWL'];
@@ -893,7 +894,7 @@ bool _isObviousItemLine(String line) {
         if (currentLength > bestLength) {
           // Longer match is better (more complete)
           bestCandidate = candidate;
-          print('🔍 DEBUG: Chose longer match for $amount: "${candidate.originalText}" (${currentLength} chars) over "${bestCandidate.originalText}" (${bestLength} chars)');
+          print('🔍 DEBUG: Chose longer match for $amount: "${candidate.originalText}" ($currentLength chars) over "${bestCandidate.originalText}" ($bestLength chars)');
         } else if (currentLength == bestLength) {
           // Same length, choose higher confidence
           if (candidate.confidence > bestCandidate.confidence) {
@@ -1678,7 +1679,7 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
     if (candidates.length > 1) {
       final secondLargest = candidates[1].amount;
       if (largestCandidate.amount > secondLargest * 1.1) { // Very low threshold - any significant difference
-        print('🔍 ENHANCED: Selected significantly larger amount: ${largestCandidate.amount} vs ${secondLargest}');
+        print('🔍 ENHANCED: Selected significantly larger amount: ${largestCandidate.amount} vs $secondLargest');
         return largestCandidate;
       }
     }
@@ -1854,25 +1855,18 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
     return date.isAfter(past) && date.isBefore(future);
   }
 
-  // Enhanced category inference
+  // Enhanced category inference - using centralized service
   String? inferCategoryFromText(String text) {
     final upperText = text.toUpperCase();
     
-    final categories = {
-      'Transport': ['FUEL', 'GAS', 'GASOLINE', 'PETROL', 'DIESEL', 'SHELL', 'BP', 'EXXON', 'CHEVRON', 'TAXI', 'UBER', 'LYFT', 'PARKING'],
-      'Groceries': ['GROCERY', 'SUPERMARKET', 'MARKET', 'WALMART', 'TARGET', 'COSTCO', 'WHOLE FOODS', 'KROGER', 'SAFEWAY'],
-      'Food & Dining': ['RESTAURANT', 'CAFE', 'COFFEE', 'PIZZA', 'BAR', 'DINER', 'MCDONALD', 'BURGER', 'STARBUCKS', 'SUBWAY'],
-      'Pharmacy': ['PHARMACY', 'DRUG', 'CVS', 'WALGREENS', 'RITE AID', 'MEDICINE', 'PRESCRIPTION'],
-      'Retail': ['STORE', 'SHOP', 'AMAZON', 'EBAY', 'BEST BUY', 'HOME DEPOT', 'LOWES'],
-      'Entertainment': ['MOVIE', 'CINEMA', 'THEATER', 'NETFLIX', 'SPOTIFY', 'GAME'],
-      'Utilities': ['ELECTRIC', 'GAS COMPANY', 'WATER', 'INTERNET', 'PHONE', 'CABLE'],
-      'Healthcare': ['HOSPITAL', 'DOCTOR', 'MEDICAL', 'DENTAL', 'CLINIC'],
-    };
-    
-    for (final category in categories.keys) {
-      for (final keyword in categories[category]!) {
-        if (upperText.contains(keyword)) {
-          return category;
+    // Get all categories from centralized service
+    for (final categoryName in CategoryService.allCategories) {
+      final categoryInfo = CategoryService.getCategoryInfo(categoryName);
+      if (categoryInfo != null) {
+        for (final keyword in categoryInfo.keywords) {
+          if (upperText.contains(keyword.toUpperCase())) {
+            return categoryName;
+          }
         }
       }
     }
@@ -1924,7 +1918,7 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
   String? detectCurrency(String text) {
     print('🔍 ENHANCED: Starting comprehensive currency detection');
     print('🔍 ENHANCED: Text length: ${text.length}');
-    print('🔍 ENHANCED: Text preview: "${text.length > 200 ? text.substring(0, 200) + "..." : text}"');
+    print('🔍 ENHANCED: Text preview: "${text.length > 200 ? "${text.substring(0, 200)}..." : text}"');
     
     // Try line-by-line detection first for better context
     final lines = text.split('\n');

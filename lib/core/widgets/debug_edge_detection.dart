@@ -177,7 +177,7 @@ class _DebugEdgeDetectionState extends State<DebugEdgeDetection> {
               ),
             ),
           );
-        }).toList(),
+        }),
         
         // Corner connections
         CustomPaint(

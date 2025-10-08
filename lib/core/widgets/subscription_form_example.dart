@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:smart_receipt/core/services/premium_service.dart';
 
 /// Example subscription form that matches the UI shown in the image
 class SubscriptionFormExample extends StatefulWidget {
@@ -19,7 +18,6 @@ class _SubscriptionFormExampleState extends State<SubscriptionFormExample> {
   final List<String> _frequencies = [
     'Weekly',
     'Monthly', 
-    'Quarterly',
     'Yearly',
   ];
 
@@ -102,7 +100,7 @@ class _SubscriptionFormExampleState extends State<SubscriptionFormExample> {
                     context: context,
                     initialDate: DateTime.now().add(const Duration(days: 30)),
                     firstDate: DateTime.now(),
-                    lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                    lastDate: DateTime.now().add(const Duration(days: 365 * 2)), // Allow future dates for end date
                   );
                   if (date != null) {
                     setState(() {

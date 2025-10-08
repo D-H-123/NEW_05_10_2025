@@ -6,7 +6,7 @@ class EdgeValidationService {
   /// Validates if the detected corners form a reasonable document shape
   static EdgeValidationResult validateCorners(List<Offset> corners) {
     if (corners.length != 4) {
-      return EdgeValidationResult(
+      return const EdgeValidationResult(
         isValid: false,
         confidence: 0.0,
         issues: ['Invalid number of corners detected'],
@@ -19,7 +19,7 @@ class EdgeValidationService {
     double confidence = 1.0;
 
     // Check if corners are too close together
-    final minDistance = 50.0;
+    const minDistance = 50.0;
     for (int i = 0; i < 4; i++) {
       for (int j = i + 1; j < 4; j++) {
         final distance = (corners[i] - corners[j]).distance;
@@ -115,7 +115,7 @@ class EdgeValidationService {
     if (angles.isEmpty) return 1.0;
     
     // Calculate deviation from 90 degrees
-    final expectedAngle = math.pi / 2; // 90 degrees
+    const expectedAngle = math.pi / 2; // 90 degrees
     double totalDeviation = 0.0;
     for (final angle in angles) {
       totalDeviation += (angle - expectedAngle).abs();

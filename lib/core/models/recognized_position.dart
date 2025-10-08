@@ -1,4 +1,5 @@
 /// Import for Offset class
+library;
 import 'package:flutter/material.dart';
 
 /// Position-aware text recognition model for enhanced OCR accuracy

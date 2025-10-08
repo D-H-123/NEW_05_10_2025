@@ -65,7 +65,7 @@ class CameraGuidanceOverlay extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.green.withOpacity(0.5)),
       ),
-      child: Row(
+      child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
@@ -73,7 +73,7 @@ class CameraGuidanceOverlay extends StatelessWidget {
             color: Colors.green,
             size: 16,
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           Text(
             'Perfect position!',
             style: TextStyle(

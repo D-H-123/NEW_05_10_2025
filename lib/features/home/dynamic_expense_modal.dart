@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/services/category_service.dart';
+import '../../core/widgets/unified_category_dropdown.dart';
 
 enum FormType {
   manualExpense,
   subscription,
-  sepaTransfer,
 }
 
 class DynamicExpenseModal extends StatefulWidget {
@@ -27,6 +28,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   final _formKey = GlobalKey<FormState>();
   
   // Controllers for all possible fields
+  final _titleController = TextEditingController();
   final _dateController = TextEditingController();
   final _amountController = TextEditingController();
   final _categoryController = TextEditingController();
@@ -35,42 +37,28 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   final _frequencyController = TextEditingController();
   final _startDateController = TextEditingController();
   final _endDateController = TextEditingController();
-  final _bankNameController = TextEditingController();
   
   // Form state
   String? _selectedCategory;
   String? _selectedFrequency;
-  String? _selectedTransferType;
+  String? _selectedSubscriptionCategory;
   DateTime? _selectedDate;
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
   bool _isEndDateEnabled = false;
 
-  // Predefined options
-  final List<String> _categories = [
-    'Food & Dining',
-    'Transportation',
-    'Shopping',
-    'Entertainment',
-    'Healthcare',
-    'Utilities',
-    'Home & Garden',
-    'Education',
-    'Travel',
-    'Other',
-  ];
+  // Predefined options - using centralized service
+  List<String> get _categories => CategoryService.manualExpenseCategories;
 
   final List<String> _frequencies = [
     'Weekly',
     'Monthly',
-    'Quarterly',
     'Yearly',
   ];
 
-  final List<String> _transferTypes = [
-    'One-time',
-    'Recurring',
-  ];
+  // Categories relevant to subscriptions only - using centralized service
+  List<String> get _subscriptionCategories => CategoryService.subscriptionCategories;
+
 
   @override
   void initState() {
@@ -92,9 +80,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
       case FormType.subscription:
         _startDateController.text = _formatDate(now);
         _selectedFrequency = 'Monthly';
-        break;
-      case FormType.sepaTransfer:
-        _selectedTransferType = 'One-time';
+        _selectedSubscriptionCategory = 'Entertainment';
         break;
     }
   }
@@ -111,16 +97,12 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         return Icons.euro;
       case 'GBP':
         return Icons.currency_pound;
-      case 'JPY':
-        return Icons.currency_yen;
       case 'CAD':
         return Icons.attach_money;
       case 'AUD':
         return Icons.attach_money;
       case 'CHF':
         return Icons.attach_money;
-      case 'CNY':
-        return Icons.currency_yen;
       case 'INR':
         return Icons.currency_rupee;
       case 'BRL':
@@ -138,15 +120,11 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         return Colors.blue;
       case 'GBP':
         return Colors.red;
-      case 'JPY':
-        return Colors.orange;
       case 'CAD':
         return Colors.red;
       case 'AUD':
         return Colors.green;
       case 'CHF':
-        return Colors.red;
-      case 'CNY':
         return Colors.red;
       case 'INR':
         return Colors.orange;
@@ -159,6 +137,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
 
   @override
   void dispose() {
+    _titleController.dispose();
     _dateController.dispose();
     _amountController.dispose();
     _categoryController.dispose();
@@ -167,7 +146,6 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     _frequencyController.dispose();
     _startDateController.dispose();
     _endDateController.dispose();
-    _bankNameController.dispose();
     super.dispose();
   }
 
@@ -177,8 +155,6 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         return 'Add Manual Expense';
       case FormType.subscription:
         return 'Add Subscription';
-      case FormType.sepaTransfer:
-        return 'Add SEPA Transfer';
     }
   }
 
@@ -188,14 +164,24 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         return _buildManualExpenseForm();
       case FormType.subscription:
         return _buildSubscriptionForm();
-      case FormType.sepaTransfer:
-        return _buildSEPATransferForm();
     }
   }
 
   Widget _buildManualExpenseForm() {
     return Column(
       children: [
+        _buildTextField(
+          controller: _titleController,
+          label: 'Title',
+          hint: 'e.g., Lunch with team',
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Please enter a title';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
         _buildDateField(
           controller: _dateController,
           label: 'Date',
@@ -206,6 +192,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
               _dateController.text = _formatDate(date);
             });
           },
+          allowFutureDates: false, // Manual expenses should not allow future dates
         ),
         const SizedBox(height: 16),
         _buildAmountField(),
@@ -221,18 +208,20 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     return Column(
       children: [
         _buildTextField(
-          controller: _subscriptionNameController,
-          label: 'Subscription Name',
-          hint: 'e.g., Netflix, Spotify',
+          controller: _titleController,
+          label: 'Title',
+          hint: 'e.g., Netflix Subscription',
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
-              return 'Please enter subscription name';
+              return 'Please enter a title';
             }
             return null;
           },
         ),
         const SizedBox(height: 16),
         _buildAmountField(),
+        const SizedBox(height: 16),
+        _buildSubscriptionCategoryDropdown(),
         const SizedBox(height: 16),
         _buildFrequencyDropdown(),
         const SizedBox(height: 16),
@@ -246,6 +235,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
               _startDateController.text = _formatDate(date);
             });
           },
+          allowFutureDates: false, // Subscription start date should not allow future dates
         ),
         const SizedBox(height: 16),
         CheckboxListTile(
@@ -275,6 +265,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
                 _endDateController.text = _formatDate(date);
               });
             },
+            allowFutureDates: true, // Subscription end date should allow future dates
             validator: (value) {
               if (_isEndDateEnabled && (value == null || value.isEmpty)) {
                 return 'Please select end date';
@@ -293,36 +284,13 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     );
   }
 
-  Widget _buildSEPATransferForm() {
-    return Column(
-      children: [
-        _buildTextField(
-          controller: _bankNameController,
-          label: 'Bank Name',
-          hint: 'e.g., Deutsche Bank, Commerzbank',
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return 'Please enter bank name';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        _buildAmountField(),
-        const SizedBox(height: 16),
-        _buildTransferTypeRadio(),
-        const SizedBox(height: 16),
-        _buildNotesField(),
-      ],
-    );
-  }
-
   Widget _buildDateField({
     required TextEditingController controller,
     required String label,
     required DateTime? selectedDate,
     required Function(DateTime) onDateSelected,
     String? Function(String?)? validator,
+    bool allowFutureDates = false, // New parameter to control future dates
   }) {
     return TextFormField(
       controller: controller,
@@ -338,7 +306,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
               context: context,
               initialDate: selectedDate ?? DateTime.now(),
               firstDate: DateTime(2020),
-              lastDate: DateTime(2030),
+              lastDate: allowFutureDates ? DateTime(2030) : DateTime.now(), // Restrict future dates unless allowed
             );
             if (date != null) {
               onDateSelected(date);
@@ -352,7 +320,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
           context: context,
           initialDate: selectedDate ?? DateTime.now(),
           firstDate: DateTime(2020),
-          lastDate: DateTime(2030),
+          lastDate: allowFutureDates ? DateTime(2030) : DateTime.now(), // Restrict future dates unless allowed
         );
         if (date != null) {
           onDateSelected(date);
@@ -396,30 +364,25 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   }
 
   Widget _buildCategoryDropdown() {
-    return DropdownButtonFormField<String>(
-      value: _selectedCategory,
-      decoration: const InputDecoration(
-        labelText: 'Category',
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.category),
-      ),
-      items: _categories.map((category) {
-        return DropdownMenuItem(
-          value: category,
-          child: Text(category),
-        );
-      }).toList(),
+    return UnifiedCategoryFormField(
+      selectedCategory: _selectedCategory,
+      categories: _categories,
       onChanged: (value) {
         setState(() {
           _selectedCategory = value;
         });
       },
+      label: 'Category',
+      hint: 'Select a category',
+      isRequired: true,
       validator: (value) {
         if (value == null || value.isEmpty) {
           return 'Please select a category';
         }
         return null;
       },
+      showIcons: true,
+      showColors: true,
     );
   }
 
@@ -451,41 +414,26 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     );
   }
 
-  Widget _buildTransferTypeRadio() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Transfer Type',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 8),
-        RadioListTile<String>(
-          title: const Text('One-time'),
-          value: 'One-time',
-          groupValue: _selectedTransferType,
-          onChanged: (value) {
-            setState(() {
-              _selectedTransferType = value;
-            });
-          },
-          contentPadding: EdgeInsets.zero,
-        ),
-        RadioListTile<String>(
-          title: const Text('Recurring'),
-          value: 'Recurring',
-          groupValue: _selectedTransferType,
-          onChanged: (value) {
-            setState(() {
-              _selectedTransferType = value;
-            });
-          },
-          contentPadding: EdgeInsets.zero,
-        ),
-      ],
+  Widget _buildSubscriptionCategoryDropdown() {
+    return UnifiedCategoryFormField(
+      selectedCategory: _selectedSubscriptionCategory,
+      categories: _subscriptionCategories,
+      onChanged: (value) {
+        setState(() {
+          _selectedSubscriptionCategory = value;
+        });
+      },
+      label: 'Subscription Category',
+      hint: 'Select a category',
+      isRequired: true,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please select a category';
+        }
+        return null;
+      },
+      showIcons: true,
+      showColors: true,
     );
   }
 
@@ -495,6 +443,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     String? hint,
     String? Function(String?)? validator,
     int maxLines = 1,
+    ValueChanged<String>? onChanged,
   }) {
     return TextFormField(
       controller: controller,
@@ -505,6 +454,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
       ),
       maxLines: maxLines,
       validator: validator,
+      onChanged: onChanged,
     );
   }
 
@@ -526,19 +476,12 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
       return;
     }
 
-    // Validate transfer type for SEPA form
-    if (widget.formType == FormType.sepaTransfer && _selectedTransferType == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select transfer type')),
-      );
-      return;
-    }
-
     // Collect form data
     final formData = <String, dynamic>{
       'formType': widget.formType.toString(),
       'amount': double.parse(_amountController.text),
       'notes': _notesController.text.trim(),
+      'title': _titleController.text.trim(),
     };
 
     // Add type-specific data
@@ -551,16 +494,10 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         break;
       case FormType.subscription:
         formData.addAll({
-          'subscriptionName': _subscriptionNameController.text.trim(),
+          'subscriptionCategory': _selectedSubscriptionCategory,
           'frequency': _selectedFrequency,
           'startDate': _selectedStartDate,
           'endDate': _selectedEndDate,
-        });
-        break;
-      case FormType.sepaTransfer:
-        formData.addAll({
-          'bankName': _bankNameController.text.trim(),
-          'transferType': _selectedTransferType,
         });
         break;
     }

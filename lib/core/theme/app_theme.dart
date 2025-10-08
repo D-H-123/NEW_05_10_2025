@@ -32,12 +32,10 @@ class AppTheme {
         primary: _primaryColor,
         secondary: _secondaryColor,
         surface: _surfaceColor,
-        background: _backgroundColor,
         error: _errorColor,
         onPrimary: Colors.white,
         onSecondary: Colors.white,
         onSurface: Color(0xFF1A1A1A),
-        onBackground: Color(0xFF1A1A1A),
         onError: Colors.white,
         outline: Color(0xFFE1E5E9),
         outlineVariant: Color(0xFFF1F3F4),
@@ -325,14 +323,14 @@ class AppTheme {
 
       // Switch Theme
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
             return _primaryColor;
           }
           return const Color(0xFFE1E5E9);
         }),
-        trackColor: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
             return _primaryColor.withOpacity(0.3);
           }
           return const Color(0xFFF1F3F4);

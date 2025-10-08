@@ -217,7 +217,7 @@ class AdvancedEdgeDetectionService {
     
     // Use smaller steps for better accuracy
     final step = math.max(1, math.min(width, height) ~/ 150);
-    final edgeThreshold = 100; // Higher threshold for better accuracy
+    const edgeThreshold = 100; // Higher threshold for better accuracy
     
     // Top edge - scan more thoroughly
     for (int y = 0; y < (height * 0.3).toInt(); y += step) {
@@ -305,7 +305,7 @@ class AdvancedEdgeDetectionService {
   
   /// Find start of edge with high accuracy
   static double? _findEdgeStartAccurate(img.Image image, int startX, int startY, bool isHorizontal, int step) {
-    final threshold = 100;
+    const threshold = 100;
     
     if (isHorizontal) {
       for (int x = startX; x >= 0; x -= step) {
@@ -330,7 +330,7 @@ class AdvancedEdgeDetectionService {
   
   /// Find end of edge with high accuracy
   static double? _findEdgeEndAccurate(img.Image image, int startX, int startY, bool isHorizontal, int step) {
-    final threshold = 100;
+    const threshold = 100;
     
     if (isHorizontal) {
       for (int x = startX; x < image.width; x += step) {

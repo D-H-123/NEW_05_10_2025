@@ -11,6 +11,8 @@ import '../../core/widgets/modern_widgets.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/widgets/subscription_paywall.dart';
 import '../../core/widgets/usage_tracker.dart';
+import '../../core/services/currency_service.dart';
+import '../../core/services/local_storage_service.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   final double growthPercentage;
@@ -33,6 +35,103 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _ensureCurrencySetup();
+  }
+
+  Future<void> _ensureCurrencySetup() async {
+    final hasSetup = LocalStorageService.getBoolSetting(LocalStorageService.kHasCompletedCurrencySetup);
+    final globalCode = ref.read(currencyProvider).currencyCode;
+    setState(() {
+      _selectedCurrency = globalCode;
+    });
+    
+    // Only show currency selection on very first app launch
+    if (!hasSetup) {
+      // Show a small modal to pick default currency
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await showDialog(
+          context: context,
+          barrierDismissible: true,
+          builder: (ctx) {
+            return AlertDialog(
+              title: const Text('Choose your currency'),
+              content: const Text('Select a default currency for your expenses.'),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    await LocalStorageService.setBoolSetting(LocalStorageService.kHasCompletedCurrencySetup, true);
+                    if (mounted) Navigator.of(ctx).pop();
+                  },
+                  child: const Text('Skip'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    if (mounted) Navigator.of(ctx).pop();
+                    // Reuse currency picker from settings
+                    // Requires lazy import to avoid circular deps; keep route-based approach minimal
+                    // Show a lightweight picker here using simple choices
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (c) {
+                        final options = [
+                          'USD','EUR','GBP','CAD','AUD','CHF','INR','BRL'
+                        ];
+                        return SafeArea(
+                          child: ListView(
+                            shrinkWrap: true,
+                            children: [
+                              const ListTile(title: Text('Select currency')),
+                              for (final code in options)
+                                ListTile(
+                                  leading: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        ref.read(currencyProvider.notifier).symbolFor(code),
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(code),
+                                  onTap: () async {
+                                    await ref.read(currencyProvider.notifier).setCurrency(code);
+                                    await LocalStorageService.setBoolSetting(LocalStorageService.kHasCompletedCurrencySetup, true);
+                                    if (mounted) {
+                                      setState(() {
+                                        _selectedCurrency = code;
+                                      });
+                                      Navigator.of(c).pop();
+                                    }
+                                  },
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                  child: const Text('Select'),
+                ),
+              ],
+            );
+          },
+        );
+      });
+    }
+  }
+
   String _getCurrencySymbol(String currency) {
     switch (currency) {
       case 'USD':
@@ -41,16 +140,12 @@ class _HomePageState extends ConsumerState<HomePage> {
         return '€';
       case 'GBP':
         return '£';
-      case 'JPY':
-        return '¥';
       case 'CAD':
         return 'C\$';
       case 'AUD':
         return 'A\$';
       case 'CHF':
         return 'CHF';
-      case 'CNY':
-        return '¥';
       case 'INR':
         return '₹';
       case 'BRL':
@@ -68,16 +163,12 @@ class _HomePageState extends ConsumerState<HomePage> {
         return Icons.euro;
       case 'GBP':
         return Icons.currency_pound;
-      case 'JPY':
-        return Icons.currency_yen;
       case 'CAD':
         return Icons.attach_money;
       case 'AUD':
         return Icons.attach_money;
       case 'CHF':
         return Icons.attach_money;
-      case 'CNY':
-        return Icons.currency_yen;
       case 'INR':
         return Icons.currency_rupee;
       case 'BRL':
@@ -95,15 +186,11 @@ class _HomePageState extends ConsumerState<HomePage> {
         return Colors.blue;
       case 'GBP':
         return Colors.red;
-      case 'JPY':
-        return Colors.orange;
       case 'CAD':
         return Colors.red;
       case 'AUD':
         return Colors.green;
       case 'CHF':
-        return Colors.red;
-      case 'CNY':
         return Colors.red;
       case 'INR':
         return Colors.orange;
@@ -119,9 +206,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       case 'FormType.manualExpense':
         return 'Manual Expense - ${formData['category'] ?? 'Other'}';
       case 'FormType.subscription':
-        return 'Manual Entry - ${formData['subscriptionName'] ?? 'Unknown'}';
-      case 'FormType.sepaTransfer':
-        return 'Manual Entry - ${formData['bankName'] ?? 'Unknown Bank'}';
+        final category = formData['subscriptionCategory'] ?? 'Subscription';
+        return 'Subscription - $category';
       default:
         return 'Manual Entry';
     }
@@ -142,9 +228,6 @@ class _HomePageState extends ConsumerState<HomePage> {
         break;
       case 'Subscription':
         formType = FormType.subscription;
-        break;
-      case 'SEPA':
-        formType = FormType.sepaTransfer;
         break;
       default:
         formType = FormType.manualExpense;
@@ -179,18 +262,28 @@ class _HomePageState extends ConsumerState<HomePage> {
               // Create a unique ID for the bill
               final billId = DateTime.now().millisecondsSinceEpoch.toString();
               
-              // Create the bill object for manual entries
+              // Determine if this is a subscription
+              final isSubscription = formData['formType'] == 'FormType.subscription';
+              final subscriptionType = isSubscription ? formData['frequency']?.toString().toLowerCase() : null;
+              
+              // Create the bill object
               final bill = Bill(
                 id: billId,
                 imagePath: 'assets/test_receipts/sample1.jpg', // Placeholder image for manual entries
                 vendor: _getVendorName(formData),
-                date: formData['date'] ?? DateTime.now(),
+                title: (formData['title'] as String?)?.isNotEmpty == true
+                    ? formData['title'] as String
+                    : null,
+                date: formData['date'] ?? formData['startDate'] ?? DateTime.now(),
                 total: formData['amount'] ?? 0.0,
                 currency: _selectedCurrency,
-                ocrText: 'Manual entry', // This identifies it as manual entry
-                tags: [formData['category'] ?? 'Other'],
+                ocrText: isSubscription ? 'Subscription entry' : 'Manual entry',
+                tags: isSubscription 
+                    ? [formData['subscriptionCategory'] ?? 'Other']
+                    : [formData['category'] ?? 'Other'],
                 location: null,
                 notes: formData['notes'] ?? '',
+                subscriptionType: subscriptionType,
               );
               
               // Save the bill to database
@@ -266,54 +359,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       backgroundColor: Colors.white,
       elevation: 0,
       automaticallyImplyLeading: false,
-      actions: [
-        Flexible(
-          child: Container(
-            margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _getCurrencyColor(_selectedCurrency).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _getCurrencyColor(_selectedCurrency).withOpacity(0.3),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _getCurrencyIcon(_selectedCurrency),
-                  color: _getCurrencyColor(_selectedCurrency),
-                  size: 14,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _selectedCurrency,
-                  style: TextStyle(
-                    color: _getCurrencyColor(_selectedCurrency),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        Container(
-          margin: const EdgeInsets.only(right: 16),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(
-            Icons.notifications_outlined,
-            color: Colors.grey,
-            size: 20,
-          ),
-        ),
-      ],
+      actions: const [],
     );
   }
 
@@ -546,65 +592,8 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildQuickActions(int achievementsCount) {
-    return ResponsiveContainer(
-      child: Column(
-        children: [
-          // First row - two cards side by side
-          IntrinsicHeight(
-            child: Row(
-              children: [
-                Expanded(
-                  child: AnimatedCard(
-                    onTap: () => context.go('/scan'),
-                    child: _buildActionCard(
-                      'Scan Receipt',
-                      '$achievementsCount scanned',
-                      Icons.camera_alt_rounded,
-                      AppTheme.primaryGradient,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: AnimatedCard(
-                    onTap: () => _showAchievements(),
-                    child: _buildActionCard(
-                      'Achievements',
-                      '$achievementsCount unlocked',
-                      Icons.emoji_events_rounded,
-                      const LinearGradient(
-                        colors: [Color(0xFFf59e0b), Color(0xFFd97706)],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Second row - Storage card (full width)
-          AnimatedCard(
-            onTap: () => context.go('/bills'),
-            child: _buildActionCard(
-              'Storage',
-              '245 receipts',
-              Icons.folder_rounded,
-              const LinearGradient(
-                colors: [Color(0xFF6366f1), Color(0xFF4f46e5)],
-              ),
-            ),
-          ),
-          // Premium upgrade card for free users
-          if (!PremiumService.isPremium) ...[
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: _showUpgradePrompt,
-              child: _buildPremiumActionCard(),
-            ),
-          ],
-        ],
-      ),
-    );
+    // All quick action boxes (Scan, Achievements, Storage, Pro subscription) removed
+    return const SizedBox.shrink();
   }
 
   void _showAchievements() {
@@ -909,20 +898,6 @@ class _HomePageState extends ConsumerState<HomePage> {
                 () async {
                   print('🔍 MAGIC HOME: Subscription callback executed!');
                   await _showExpenseModal('Subscription');
-                },
-                size: 60,
-              ),
-            ),
-            // SEPA - Right (90°)
-            Positioned(
-              right: 10,
-              child: _buildMenuItem(
-                'SEPA',
-                Icons.account_balance,
-                Colors.orange,
-                () async {
-                  print('🔍 MAGIC HOME: SEPA callback executed!');
-                  await _showExpenseModal('SEPA');
                 },
                 size: 60,
               ),

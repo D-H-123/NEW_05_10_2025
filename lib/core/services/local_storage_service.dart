@@ -16,6 +16,8 @@ class LocalStorageService {
   static const String kLocation = 'location';
   static const String kCalendarResults = 'calendarResults';
   static const String kNotes = 'notes';
+  static const String kCurrencyCode = 'currencyCode';
+  static const String kHasCompletedCurrencySetup = 'hasCompletedCurrencySetup';
 
   static Future<void> init() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -128,6 +130,16 @@ class LocalStorageService {
   }
 
   static Future<void> setBoolSetting(String key, bool value) async {
+    await _settings.put(key, value);
+  }
+
+  static String? getStringSetting(String key) {
+    final v = _settings.get(key);
+    if (v is String) return v;
+    return null;
+  }
+
+  static Future<void> setStringSetting(String key, String value) async {
     await _settings.put(key, value);
   }
 

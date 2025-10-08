@@ -320,7 +320,7 @@ class OptimizedEdgeDetectionService {
     
     // Use larger steps for speed
     final step = math.max(2, math.min(width, height) ~/ 100);
-    final threshold = 80;
+    const threshold = 80;
     
     // Find corners in each quadrant
     final regions = [
@@ -385,7 +385,7 @@ class OptimizedEdgeDetectionService {
     
     // Use larger steps for speed
     final step = math.max(3, math.min(width, height) ~/ 80);
-    final threshold = 70;
+    const threshold = 70;
     
     // Find edges on each side
     final sides = [

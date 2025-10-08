@@ -278,6 +278,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                 total: formData['amount'] ?? 0.0,
                 currency: _selectedCurrency,
                 ocrText: isSubscription ? 'Subscription entry' : 'Manual entry',
+                categoryId: isSubscription 
+                    ? (formData['subscriptionCategory'] ?? 'Other')
+                    : (formData['category'] ?? 'Other'),
                 tags: isSubscription 
                     ? [formData['subscriptionCategory'] ?? 'Other']
                     : [formData['category'] ?? 'Other'],

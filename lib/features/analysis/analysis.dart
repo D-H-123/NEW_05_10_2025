@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/widgets/modern_widgets.dart';
-import '../../core/services/category_service.dart';
+import 'package:smart_receipt/core/services/analytics_repository.dart';
+import 'package:smart_receipt/features/storage/models/bill_model.dart';
+import 'package:smart_receipt/core/services/local_storage_service.dart';
+import 'package:smart_receipt/core/widgets/modern_widgets.dart';
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -17,9 +19,19 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   late Animation<double> _fadeAnimation;
   bool _isPremium = false; // TODO: Connect to premium service
 
+  late final AnalyticsRepository _analyticsRepository;
+  List<Bill> _filteredBills = [];
+  bool _isLoading = false;
+  
+  // Analytics data
+  double _totalSpent = 0.0;
+  double _percentageChange = 0.0;
+
   @override
   void initState() {
     super.initState();
+    _analyticsRepository = AnalyticsRepository(localStorage: LocalStorageService());
+    _fetchBills();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -28,6 +40,44 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
     _animationController.forward();
+  }
+
+  void _fetchBills() async {
+    setState(() => _isLoading = true);
+    final filter = TimeFilter.values[_selectedTimeFilter];
+    
+    try {
+      // Fetch bills and analytics data in parallel
+      final results = await Future.wait([
+        _analyticsRepository.getBills(filter: filter),
+        _analyticsRepository.getTotalSpent(filter: filter),
+        _analyticsRepository.getPercentageChange(filter: filter),
+      ]);
+      
+      setState(() {
+        _filteredBills = results[0] as List<Bill>;
+        _totalSpent = results[1] as double;
+        _percentageChange = results[2] as double;
+        _isLoading = false;
+      });
+
+      // Debug: Print detailed information
+      final debugInfo = await _analyticsRepository.getPercentageChangeDetails(filter: filter);
+      print('=== DEBUG INFO ===');
+      print('Filter: ${debugInfo['filter']}');
+      print('Current Total: \$${debugInfo['currentTotal']}');
+      print('Previous Total: \$${debugInfo['previousTotal']}');
+      print('Percentage Change: ${debugInfo['percentageChange']}%');
+      print('Current Bills Count: ${debugInfo['currentBillsCount']}');
+      print('Previous Bills Count: ${debugInfo['previousBillsCount']}');
+      print('==================');
+      
+    } catch (e) {
+      print('Error fetching analytics data: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -42,6 +92,46 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     });
     _animationController.reset();
     _animationController.forward();
+    _fetchBills();
+  }
+
+  String _getTimeFilterTitle() {
+    final now = DateTime.now();
+    switch (_selectedTimeFilter) {
+      case 0: // Week
+        final weekNumber = _getWeekNumber(now);
+        return 'Week $weekNumber';
+      case 1: // Month
+        final monthNames = [
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+        ];
+        return '${monthNames[now.month - 1]} ${now.year}';
+      case 2: // Year
+        return '${now.year}';
+      default:
+        return 'Spending by Category';
+    }
+  }
+
+  int _getWeekNumber(DateTime date) {
+    // Proper ISO 8601 week number calculation
+    // ISO week: Week 1 is the first week with at least 4 days in the new year
+    
+    // Get the Thursday of the current week (ISO week starts on Monday)
+    final thursday = date.add(Duration(days: 4 - date.weekday));
+    
+    // Get January 4th of the Thursday's year (guaranteed to be in week 1)
+    final jan4 = DateTime(thursday.year, 1, 4);
+    
+    // Get the Monday of week 1 in that year
+    final week1Monday = jan4.subtract(Duration(days: jan4.weekday - 1));
+    
+    // Calculate week number
+    final daysSinceWeek1 = thursday.difference(week1Monday).inDays;
+    final weekNumber = (daysSinceWeek1 / 7).floor() + 1;
+    
+    return weekNumber;
   }
 
   @override
@@ -81,111 +171,33 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
       ),
       body: FadeTransition(
         opacity: _fadeAnimation,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Premium Banner
-              _buildPremiumBanner(),
-              const SizedBox(height: 24),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Time Filter Tabs
+                    _buildTimeFilterTabs(),
+                    const SizedBox(height: 24),
 
-              // Time Filter Tabs
-              _buildTimeFilterTabs(),
-              const SizedBox(height: 24),
+                    // Budget Overview Cards
+                    _buildBudgetOverviewCards(),
+                    const SizedBox(height: 24),
 
-              // Budget Overview Cards
-              _buildBudgetOverviewCards(),
-              const SizedBox(height: 24),
+                    // Spending Trend Chart
+                    _buildSpendingTrendChart(),
+                    const SizedBox(height: 24),
 
-              // Spending Trend Chart
-              _buildSpendingTrendChart(),
-              const SizedBox(height: 24),
-
-              // Categories Section
-              _buildCategoriesSection(),
-              const SizedBox(height: 24),
-
-              // Smart Insights Section
-              _buildSmartInsightsSection(),
-              const SizedBox(height: 32),
-            ],
-          ),
-        ),
+                    // Categories Section
+                    _buildCategoriesSection(),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
       ),
       bottomNavigationBar: _buildBottomNavigationBar(),
-    );
-  }
-
-  Widget _buildPremiumBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFD700), Color(0xFFFF8C00)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.orange.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.emoji_events,
-            color: Colors.white,
-            size: 32,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Unlock Premium Analytics',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Advanced insights & forecasting',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _showPremiumUpgradeDialog();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.orange,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            ),
-            child: const Text(
-              'Upgrade',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -203,7 +215,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
           filters.length,
           (index) => Expanded(
             child: GestureDetector(
-              onTap: () => _onTimeFilterChanged(index),
+              onTap: _isLoading ? null : () => _onTimeFilterChanged(index),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -223,6 +235,8 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                     fontWeight: _selectedTimeFilter == index
                         ? FontWeight.bold
                         : FontWeight.normal,
+                    // Disable text color if loading
+                    decoration: _isLoading ? TextDecoration.lineThrough : null,
                   ),
                 ),
               ),
@@ -234,31 +248,65 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   }
 
   Widget _buildBudgetOverviewCards() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildBudgetCard(
-            icon: Icons.attach_money,
-            amount: '\$1,247',
-            title: 'Total Spent',
-            subtitle: '+12% vs last month',
-            isPositive: true,
-            color: const Color(0xFF4facfe),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildBudgetCard(
-            icon: Icons.track_changes,
-            amount: '\$753',
-            title: 'Budget Left',
-            subtitle: '-8% vs target',
-            isPositive: false,
-            color: const Color(0xFFe74c3c),
-          ),
-        ),
-      ],
+    String periodText = _getPeriodText();
+    
+    // Enhanced logic: consider spending change context
+    bool isSpendingGood = _getSpendingChangeContext();
+    
+    return _buildBudgetCard(
+      icon: Icons.attach_money,
+      amount: '\$${_totalSpent.toStringAsFixed(2)}',
+      title: 'Total Spent',
+      subtitle: _percentageChange >= 0 ? '+${_percentageChange.toStringAsFixed(1)}% vs $periodText' : '${_percentageChange.toStringAsFixed(1)}% vs $periodText',
+      isPositive: isSpendingGood,
+      color: const Color(0xFF4facfe),
     );
+  }
+
+  /// Determines if spending change is positive (good) or negative (bad)
+  bool _getSpendingChangeContext() {
+    // Threshold-based logic for more nuanced feedback
+    const double significantIncreaseThreshold = 10.0; // 10% increase is significant
+    const double significantDecreaseThreshold = -5.0; // 5% decrease is good
+    
+    if (_percentageChange <= significantDecreaseThreshold) {
+      return true; // Significant decrease = Very Good (Green)
+    } else if (_percentageChange <= 0) {
+      return true; // Small decrease = Good (Green)
+    } else if (_percentageChange <= significantIncreaseThreshold) {
+      return false; // Small increase = Bad (Red)
+    } else {
+      return false; // Significant increase = Very Bad (Red)
+    }
+  }
+
+  /// Returns appropriate color based on spending change magnitude
+  Color _getSpendingChangeColor() {
+    const double significantIncreaseThreshold = 10.0;
+    const double significantDecreaseThreshold = -5.0;
+    
+    if (_percentageChange <= significantDecreaseThreshold) {
+      return Colors.lightGreen[600]!; // Very good - lighter green
+    } else if (_percentageChange <= 0) {
+      return Colors.green[600]!; // Good - standard green
+    } else if (_percentageChange <= significantIncreaseThreshold) {
+      return Colors.orange[600]!; // Warning - orange for small increases
+    } else {
+      return Colors.red[600]!; // Bad - red for significant increases
+    }
+  }
+
+  String _getPeriodText() {
+    switch (_selectedTimeFilter) {
+      case 0: // Week
+        return 'last week';
+      case 1: // Month
+        return 'last month';
+      case 2: // Year
+        return 'last year';
+      default:
+        return 'last month';
+    }
   }
 
   Widget _buildBudgetCard({
@@ -270,53 +318,119 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     required Color color,
   }) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white, // Restored to original white background
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withOpacity(0.1),
+            color.withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: color.withOpacity(0.2),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: color.withOpacity(0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
+          // Left section - Centered content
+          Expanded(
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, color: color, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        amount,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Center divider line - positioned in middle of entire card
           Container(
-            padding: const EdgeInsets.all(8),
+            height: 30,
+            width: 1,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            amount,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(0.5),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: isPositive ? Colors.green : Colors.red,
-              fontWeight: FontWeight.w500,
+          // Right section - Centered content
+          Expanded(
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isPositive ? Icons.trending_down : Icons.trending_up,
+                    size: 24,
+                    color: _getSpendingChangeColor(),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _percentageChange >= 0 ? '+${_percentageChange.toStringAsFixed(1)}%' : '${_percentageChange.toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontSize: 20,
+                          color: _getSpendingChangeColor(),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'vs ${_getPeriodText()}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -325,11 +439,56 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   }
 
   Widget _buildSpendingTrendChart() {
+    // Group bills by category and sum totals
+    Map<String, double> categoryTotals = {};
+    for (var bill in _filteredBills) {
+      String category = bill.categoryId ?? 'Uncategorized';
+      categoryTotals[category] = (categoryTotals[category] ?? 0.0) + (bill.total ?? 0.0);
+    }
+    
+    // Sort categories by total spent, take top 5 for chart
+    final sortedCategories = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topCategories = sortedCategories.take(5).toList();
+    
+    // Calculate maxY with proper rounding to multiples of 10, 50, 100, or 1000
+    double maxY = topCategories.isNotEmpty 
+        ? topCategories.first.value 
+        : 0.0;
+    
+    // Round to appropriate multiple based on value
+    if (maxY <= 0) {
+      maxY = 40; // Default minimum (4 lines * 10)
+    } else {
+      maxY = maxY * 1.2; // Add 20% padding
+      if (maxY <= 100) {
+        maxY = (maxY / 10).ceil() * 10; // Round to nearest 10
+      } else if (maxY <= 500) {
+        maxY = (maxY / 50).ceil() * 50; // Round to nearest 50
+      } else if (maxY <= 5000) {
+        maxY = (maxY / 100).ceil() * 100; // Round to nearest 100
+      } else {
+        maxY = (maxY / 1000).ceil() * 1000; // Round to nearest 1000
+      }
+    }
+    
+    // Ensure maxY is divisible by 4 for clean grid lines
+    // This ensures grid lines at 0, maxY/4, maxY/2, 3*maxY/4, maxY are nice numbers
+    if (maxY <= 100) {
+      maxY = ((maxY / 4).ceil() * 4).toDouble(); // Round to nearest multiple of 4
+    } else if (maxY <= 500) {
+      maxY = ((maxY / 20).ceil() * 20).toDouble(); // Round to nearest multiple of 20
+    } else if (maxY <= 5000) {
+      maxY = ((maxY / 40).ceil() * 40).toDouble(); // Round to nearest multiple of 40
+    } else {
+      maxY = ((maxY / 400).ceil() * 400).toDouble(); // Round to nearest multiple of 400
+    }
+    
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white, // Restored to original white background
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -345,14 +504,14 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-                             const Text(
-                 'Spending Trend',
-                 style: TextStyle(
-                   fontSize: 18,
-                   fontWeight: FontWeight.bold,
-                   color: Colors.black87,
-                 ),
-               ),
+              Text(
+                _getTimeFilterTitle(),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
               Icon(
                 Icons.show_chart,
                 color: Colors.grey[400],
@@ -361,156 +520,207 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
             ],
           ),
           const SizedBox(height: 16),
-          Stack(
-            children: [
-              SizedBox(
-                height: 200,
-                child: BarChart(
-                  BarChartData(
-                    alignment: BarChartAlignment.spaceAround,
-                    maxY: 100,
-                    barTouchData: BarTouchData(enabled: false),
-                    titlesData: FlTitlesData(
-                      show: true,
-                      rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          getTitlesWidget: (value, meta) {
-                            const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                            if (value >= 0 && value < days.length) {
+          topCategories.isEmpty
+              ? Container(
+                  height: 220, // Increased height to prevent overflow
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12), // Reduced padding
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50], // Lighter background
+                            borderRadius: BorderRadius.circular(40), // Smaller circle
+                          ),
+                          child: Icon(
+                            Icons.receipt_long_outlined,
+                            size: 36, // Smaller icon
+                            color: Colors.grey[500], // Slightly darker
+                          ),
+                        ),
+                        const SizedBox(height: 12), // Reduced spacing
+                        Text(
+                          'No spending data for this period',
+                          style: TextStyle(
+                            color: Colors.grey[700], // Darker text
+                            fontSize: 15, // Slightly smaller
+                            fontWeight: FontWeight.w600, // Bolder
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 6), // Reduced spacing
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Text(
+                            'Add receipts to see your spending by category',
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 13, // Smaller text
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        const SizedBox(height: 16), // Reduced spacing
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            context.go('/scan'); // Navigate to camera/scan page
+                          },
+                          icon: const Icon(Icons.camera_alt, size: 16), // Smaller icon
+                          label: const Text('Add Receipt', style: TextStyle(fontSize: 13)), // Smaller text
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF4facfe),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced padding
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6), // Smaller radius
+                            ),
+                            elevation: 2, // Added shadow
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : SizedBox(
+                  height: 200,
+                  child: BarChart(
+                    BarChartData(
+                      alignment: BarChartAlignment.spaceAround,
+                      maxY: maxY,
+                      barTouchData: BarTouchData(enabled: false),
+                      titlesData: FlTitlesData(
+                        show: true,
+                        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            getTitlesWidget: (value, meta) {
+                              if (value >= 0 && value < topCategories.length) {
+                                final category = topCategories[value.toInt()].key;
+                                // Truncate long category names
+                                final displayName = category.length > 8 
+                                    ? '${category.substring(0, 8)}...' 
+                                    : category;
+                                return Text(
+                                  displayName,
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 10,
+                                  ),
+                                );
+                              }
+                              return const Text('');
+                            },
+                          ),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                            interval: maxY / 4, // Match grid line interval
+                            getTitlesWidget: (value, meta) {
+                              // Show labels only for grid lines (0, maxY/4, maxY/2, 3*maxY/4, maxY)
+                              // But hide the first (0) and last (maxY) values
+                              if (value == 0 || value == maxY) {
+                                return const SizedBox.shrink();
+                              }
                               return Text(
-                                days[value.toInt()],
+                                '\$${value.toInt()}',
                                 style: const TextStyle(
                                   color: Colors.grey,
-                                  fontSize: 12,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600, // Bolder font weight
                                 ),
                               );
-                            }
-                            return const Text('');
-                          },
+                            },
+                          ),
                         ),
                       ),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 40,
-                          getTitlesWidget: (value, meta) {
-                            return Text(
-                              '\$${value.toInt()}',
-                              style: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 10,
-                              ),
-                            );
-                          },
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false, // Remove vertical grid lines
+                        drawHorizontalLine: true, // Keep horizontal grid lines
+                        horizontalInterval: maxY / 4, // 4 horizontal lines
+                        getDrawingHorizontalLine: (value) {
+                          // All grid lines should be dotted (X-axis is handled by border)
+                          return FlLine(
+                            color: Colors.grey[350]!,
+                            strokeWidth: 1,
+                            dashArray: [5, 5], // Dotted line
+                          );
+                        },
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.grey[350]!,
+                            width: 1.5,
+                          ),
                         ),
                       ),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    backgroundColor: const Color(0xFF16213e),
-                                         barGroups: [
-                       BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: 45, color: Color(0xFF4facfe))]),
-                       BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: 32, color: Color(0xFF4facfe))]),
-                       BarChartGroupData(x: 2, barRods: [BarChartRodData(toY: 67, color: Color(0xFF4facfe))]),
-                       BarChartGroupData(x: 3, barRods: [BarChartRodData(toY: 89, color: Color(0xFF4facfe))]),
-                       BarChartGroupData(x: 4, barRods: [BarChartRodData(toY: 56, color: Color(0xFF4facfe))]),
-                       BarChartGroupData(x: 5, barRods: [BarChartRodData(toY: 78, color: Color(0xFF4facfe))]),
-                       BarChartGroupData(x: 6, barRods: [BarChartRodData(toY: 34, color: Color(0xFF4facfe))]),
-                     ],
-                  ),
-                ),
-              ),
-              if (!_isPremium)
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.lock,
-                            color: Colors.white.withOpacity(0.7),
-                            size: 32,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Premium Required',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                      backgroundColor: Colors.transparent,
+                      barGroups: List.generate(topCategories.length, (i) {
+                        // Assign different colors to categories
+                        final colors = [
+                          const Color(0xFF4facfe), // Blue
+                          const Color(0xFF00D4AA), // Teal
+                          const Color(0xFFE74C3C), // Red
+                          const Color(0xFFF39C12), // Orange
+                          const Color(0xFF9B59B6), // Purple
+                        ];
+                        return BarChartGroupData(
+                          x: i, 
+                          barRods: [BarChartRodData(
+                            toY: topCategories[i].value, 
+                            color: colors[i % colors.length],
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(4),
+                              topRight: Radius.circular(4),
+                              bottomLeft: Radius.zero,
+                              bottomRight: Radius.zero,
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Upgrade to view detailed analytics',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.5),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
+                          )],
+                        );
+                      }),
                     ),
                   ),
                 ),
-            ],
-          ),
         ],
       ),
     );
   }
 
   Widget _buildCategoriesSection() {
-    final categories = [
-      {
-        'name': 'Food & Dining', 
-        'amount': 487.32, 
-        'percentage': 39, 
-        'color': CategoryService.getCategoryColor('Food & Dining'), 
-        'icon': CategoryService.getCategoryIcon('Food & Dining')
-      },
-      {
-        'name': 'Shopping', 
-        'amount': 234.50, 
-        'percentage': 19, 
-        'color': CategoryService.getCategoryColor('Shopping'), 
-        'icon': CategoryService.getCategoryIcon('Shopping')
-      },
-      {
-        'name': 'Transportation', 
-        'amount': 156.78, 
-        'percentage': 13, 
-        'color': CategoryService.getCategoryColor('Transportation'), 
-        'icon': CategoryService.getCategoryIcon('Transportation')
-      },
-      {
-        'name': 'Entertainment', 
-        'amount': 89.45, 
-        'percentage': 7, 
-        'color': CategoryService.getCategoryColor('Entertainment'), 
-        'icon': CategoryService.getCategoryIcon('Entertainment')
-      },
-      {
-        'name': 'Utilities', 
-        'amount': 278.95, 
-        'percentage': 22, 
-        'color': CategoryService.getCategoryColor('Utilities'), 
-        'icon': CategoryService.getCategoryIcon('Utilities')
-      },
-    ];
-
+    // Group bills by category and sum totals
+    Map<String, double> categoryTotals = {};
+    for (var bill in _filteredBills) {
+      String category = bill.categoryId ?? 'Uncategorized';
+      categoryTotals[category] = (categoryTotals[category] ?? 0.0) + (bill.total ?? 0.0);
+    }
+    // Sort categories by total spent, take top 5
+    final sortedCategories = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topCategories = sortedCategories.take(5).toList();
+    final totalSpent = _filteredBills.fold(0.0, (sum, bill) => sum + (bill.total ?? 0.0));
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF16213e), // Dark blue card background
+        color: const Color(0xFF16213e),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -549,7 +759,30 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
             ],
           ),
           const SizedBox(height: 16),
-          ...categories.map((category) => _buildCategoryItem(category)),
+          if (topCategories.isEmpty)
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.category_outlined, size: 48, color: Colors.grey[400]),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No spending categories for this period',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...topCategories.map((entry) {
+              final percent = totalSpent > 0 ? (entry.value / totalSpent * 100).round() : 0;
+              return _buildCategoryItem({
+                'name': entry.key,
+                'amount': entry.value,
+                'percentage': percent,
+                'color': Colors.green, // You can map category to color if you have a color map
+                'icon': Icons.category, // You can map category to icon if you have a map
+              });
+            }),
         ],
       ),
     );
@@ -616,91 +849,6 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     );
   }
 
-  Widget _buildSmartInsightsSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0f3460), // Darker blue background
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF4facfe).withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Smart Insights',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildInsightCard(
-            icon: Icons.lightbulb,
-            title: 'Spending Pattern',
-            text: 'You spend 40% more on weekends. Consider setting weekend budgets.',
-            backgroundColor: const Color(0xFF4facfe).withOpacity(0.1),
-            iconColor: const Color(0xFF4facfe),
-          ),
-          const SizedBox(height: 12),
-          _buildInsightCard(
-            icon: Icons.check_circle,
-            title: 'Goal Progress',
-            text: 'Great job! You\'re 15% under your dining budget this month.',
-            backgroundColor: Colors.green.withOpacity(0.1),
-            iconColor: Colors.green,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInsightCard({
-    required IconData icon,
-    required String title,
-    required String text,
-    required Color backgroundColor,
-    required Color iconColor,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  text,
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showPremiumUpgradeDialog() {
     showDialog(
@@ -725,7 +873,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            ...['Detailed spending analytics', 'Export functionality', 'Advanced insights', 'Custom reports'].map((feature) => 
+            ...['Detailed spending analytics', 'Export functionality', 'Advanced analytics', 'Custom reports'].map((feature) => 
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Row(

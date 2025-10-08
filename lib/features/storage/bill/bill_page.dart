@@ -17,6 +17,8 @@ import '../../../core/widgets/subscription_paywall.dart';
 import '../../../core/services/subscription_utils.dart';
 import '../../../core/widgets/filter_dropdown.dart';
 import '../../../core/widgets/subscription_badge.dart';
+import '../../home/dynamic_expense_modal.dart';
+import '../models/bill_model.dart';
 
 class BillsPage extends ConsumerStatefulWidget {
   const BillsPage({super.key});
@@ -117,16 +119,8 @@ class _BillsPageState extends ConsumerState<BillsPage> {
               subtitle: const Text('Modify receipt details'),
               onTap: () {
                 Navigator.pop(context);
-                // Navigate to edit page
-                context.push('/post-capture', extra: {
-                  'imagePath': bill.imagePath,
-                  'detectedTitle': bill.title ?? bill.vendor,
-                  'detectedTotal': bill.total,
-                  'detectedCurrency': bill.currency,
-                  'isEditing': true,
-                  'billId': bill.id,
-                  'existingBill': bill,
-                });
+                // Navigate to appropriate edit page based on bill source
+                _navigateToEditPage(bill);
               },
             ),
             
@@ -2233,5 +2227,167 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
         ],
       ),
     );
+  }
+
+  // Navigate to appropriate edit page based on bill source
+  void _navigateToEditPage(dynamic bill) {
+    // Determine bill source based on ocrText
+    final isManualEntry = bill.ocrText == 'Manual entry';
+    final isSubscriptionEntry = bill.ocrText == 'Subscription entry';
+    
+    if (isSubscriptionEntry) {
+      // Navigate to subscription form for editing
+      _showSubscriptionEditModal(bill);
+    } else if (isManualEntry) {
+      // Navigate to manual expense form for editing
+      _showManualExpenseEditModal(bill);
+    } else {
+      // Navigate to post-capture page for scanned receipts
+      context.push('/post-capture', extra: {
+        'imagePath': bill.imagePath,
+        'detectedTitle': bill.title ?? bill.vendor,
+        'detectedTotal': bill.total,
+        'detectedCurrency': bill.currency,
+        'isEditing': true,
+        'billId': bill.id,
+        'existingBill': bill,
+      });
+    }
+  }
+
+  // Show subscription edit modal
+  void _showSubscriptionEditModal(dynamic bill) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      isDismissible: true,
+      enableDrag: true,
+      builder: (context) => DynamicExpenseModal(
+        formType: FormType.subscription,
+        selectedCurrency: bill.currency ?? 'USD',
+        existingBill: bill,
+        onSubmit: (formData) async {
+          try {
+            // Update the existing bill with new data
+            final updatedBill = Bill(
+              id: bill.id,
+              imagePath: bill.imagePath,
+              vendor: _getVendorName(formData),
+              title: (formData['title'] as String?)?.isNotEmpty == true
+                  ? formData['title'] as String
+                  : null,
+              date: formData['startDate'] ?? DateTime.now(),
+              total: formData['amount'] ?? 0.0,
+              currency: bill.currency ?? 'USD',
+              ocrText: 'Subscription entry',
+              tags: [formData['subscriptionCategory'] ?? 'Other'],
+              location: bill.location,
+              notes: formData['notes'] ?? '',
+              subscriptionType: formData['frequency']?.toString().toLowerCase(),
+              createdAt: bill.createdAt,
+              updatedAt: DateTime.now(),
+            );
+            
+            // Update the bill in database
+            ref.read(billProvider.notifier).updateBill(updatedBill);
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Subscription updated successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to update subscription: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  // Show manual expense edit modal
+  void _showManualExpenseEditModal(dynamic bill) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      isDismissible: true,
+      enableDrag: true,
+      builder: (context) => DynamicExpenseModal(
+        formType: FormType.manualExpense,
+        selectedCurrency: bill.currency ?? 'USD',
+        existingBill: bill,
+        onSubmit: (formData) async {
+          try {
+            // Update the existing bill with new data
+            final updatedBill = Bill(
+              id: bill.id,
+              imagePath: bill.imagePath,
+              vendor: _getVendorName(formData),
+              title: (formData['title'] as String?)?.isNotEmpty == true
+                  ? formData['title'] as String
+                  : null,
+              date: formData['date'] ?? DateTime.now(),
+              total: formData['amount'] ?? 0.0,
+              currency: bill.currency ?? 'USD',
+              ocrText: 'Manual entry',
+              tags: [formData['category'] ?? 'Other'],
+              location: bill.location,
+              notes: formData['notes'] ?? '',
+              subscriptionType: null, // Manual expenses don't have subscription type
+              createdAt: bill.createdAt,
+              updatedAt: DateTime.now(),
+            );
+            
+            // Update the bill in database
+            ref.read(billProvider.notifier).updateBill(updatedBill);
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Manual expense updated successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to update manual expense: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  // Helper method to get vendor name from form data
+  String _getVendorName(Map<String, dynamic> formData) {
+    final title = formData['title'] as String?;
+    if (title != null && title.isNotEmpty) {
+      return title;
+    }
+    
+    // For subscriptions, try to get subscription category
+    final subscriptionCategory = formData['subscriptionCategory'] as String?;
+    if (subscriptionCategory != null && subscriptionCategory.isNotEmpty) {
+      return subscriptionCategory;
+    }
+    
+    // For manual expenses, try to get category
+    final category = formData['category'] as String?;
+    if (category != null && category.isNotEmpty) {
+      return category;
+    }
+    
+    return 'Manual Entry';
   }
 }

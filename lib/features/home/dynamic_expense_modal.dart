@@ -12,12 +12,14 @@ class DynamicExpenseModal extends StatefulWidget {
   final FormType formType;
   final String selectedCurrency;
   final Function(Map<String, dynamic>) onSubmit;
+  final dynamic existingBill; // Optional existing bill for editing
 
   const DynamicExpenseModal({
     super.key,
     required this.formType,
     required this.selectedCurrency,
     required this.onSubmit,
+    this.existingBill,
   });
 
   @override
@@ -71,7 +73,13 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     _selectedDate = now;
     _selectedStartDate = now;
     
-    // Set default values based on form type
+    // If editing existing bill, pre-fill the form
+    if (widget.existingBill != null) {
+      _prefillFormWithExistingData();
+      return;
+    }
+    
+    // Set default values based on form type for new entries
     switch (widget.formType) {
       case FormType.manualExpense:
         _dateController.text = _formatDate(now);
@@ -85,8 +93,56 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     }
   }
 
+  void _prefillFormWithExistingData() {
+    final bill = widget.existingBill;
+    
+    // Common fields
+    _titleController.text = bill.title ?? bill.vendor ?? '';
+    _amountController.text = bill.total?.toString() ?? '';
+    _notesController.text = bill.notes ?? '';
+    
+    // Set date fields
+    if (bill.date != null) {
+      _selectedDate = bill.date;
+      _dateController.text = _formatDate(bill.date!);
+    }
+    
+    // Set category
+    if (bill.tags != null && bill.tags!.isNotEmpty) {
+      _selectedCategory = bill.tags!.first;
+    }
+    
+    // Form-specific fields
+    switch (widget.formType) {
+      case FormType.manualExpense:
+        // Manual expense specific fields are already set above
+        break;
+      case FormType.subscription:
+        // Set subscription-specific fields
+        _subscriptionNameController.text = bill.title ?? bill.vendor ?? '';
+        _selectedSubscriptionCategory = bill.tags?.isNotEmpty == true ? bill.tags!.first : 'Entertainment';
+        _selectedFrequency = bill.subscriptionType != null ? _capitalize(bill.subscriptionType!) : 'Monthly';
+        _frequencyController.text = _selectedFrequency ?? 'Monthly';
+        
+        // Set start date
+        if (bill.date != null) {
+          _selectedStartDate = bill.date;
+          _startDateController.text = _formatDate(bill.date!);
+        }
+        
+        // Set end date if available (this would need to be stored in the bill model)
+        // For now, we'll leave it empty as it's not currently stored
+        break;
+    }
+  }
+
   String _formatDate(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  String _capitalize(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1).toLowerCase();
   }
 
   IconData _getCurrencyIcon(String currency) {

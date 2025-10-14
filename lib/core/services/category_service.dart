@@ -58,7 +58,7 @@ class CategoryService {
       keywords: ['beauty', 'cosmetics', 'salon', 'spa', 'personal care', 'fashion & clothing'],
     ),
     'Services': CategoryInfo(
-      color: Colors.grey,
+      color: Colors.teal,
       icon: Icons.build,
       keywords: ['service', 'repair', 'maintenance', 'cleaning', 'services'],
     ),

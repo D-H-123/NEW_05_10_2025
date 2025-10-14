@@ -4,7 +4,22 @@ import 'package:go_router/go_router.dart';
 import 'package:smart_receipt/core/services/analytics_repository.dart';
 import 'package:smart_receipt/features/storage/models/bill_model.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
+import 'package:smart_receipt/core/services/category_service.dart';
 import 'package:smart_receipt/core/widgets/modern_widgets.dart';
+
+class CategorySegment {
+  final String categoryName;
+  final double amount;
+  final double percentage; // Percentage of total spending
+  final Color color;
+  
+  CategorySegment({
+    required this.categoryName,
+    required this.amount,
+    required this.percentage,
+    required this.color,
+  });
+}
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -18,6 +33,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   bool _isPremium = false; // TODO: Connect to premium service
+  String _selectedChartType = 'Bar Chart'; // Track selected chart type
 
   late final AnalyticsRepository _analyticsRepository;
   List<Bill> _filteredBills = [];
@@ -446,10 +462,13 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
       categoryTotals[category] = (categoryTotals[category] ?? 0.0) + (bill.total ?? 0.0);
     }
     
-    // Sort categories by total spent, take top 5 for chart
+    // Sort categories by total spent
     final sortedCategories = categoryTotals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    
+    // For bar chart: take top 5, for pie chart: use all categories
     final topCategories = sortedCategories.take(5).toList();
+    final allCategories = sortedCategories; // All categories for pie chart
     
     // Calculate maxY with proper rounding to multiples of 10, 50, 100, or 1000
     double maxY = topCategories.isNotEmpty 
@@ -512,10 +531,126 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                   color: Colors.black87,
                 ),
               ),
-              Icon(
-                Icons.show_chart,
-                color: Colors.grey[400],
-                size: 20,
+              PopupMenuButton<String>(
+                onSelected: (String value) {
+                  setState(() {
+                    _selectedChartType = value;
+                  });
+                },
+                offset: const Offset(0, 40), // Position dropdown below button
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey[300]!, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Chart',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.keyboard_arrow_down,
+                        color: Colors.grey[600],
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                ),
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  PopupMenuItem<String>(
+                    value: 'Bar Chart',
+                    child: Row(
+                      children: [
+                        Icon(
+                          _selectedChartType == 'Bar Chart' 
+                              ? Icons.radio_button_checked 
+                              : Icons.radio_button_unchecked,
+                          color: _selectedChartType == 'Bar Chart' 
+                              ? const Color(0xFF4facfe) 
+                              : Colors.grey[400],
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Bar Chart',
+                          style: TextStyle(
+                            color: _selectedChartType == 'Bar Chart' 
+                                ? Colors.black87 
+                                : Colors.grey[600],
+                            fontWeight: _selectedChartType == 'Bar Chart' 
+                                ? FontWeight.w600 
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'Pie Chart',
+                    child: Row(
+                      children: [
+                        Icon(
+                          _selectedChartType == 'Pie Chart' 
+                              ? Icons.radio_button_checked 
+                              : Icons.radio_button_unchecked,
+                          color: _selectedChartType == 'Pie Chart' 
+                              ? const Color(0xFF4facfe) 
+                              : Colors.grey[400],
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Pie Chart',
+                          style: TextStyle(
+                            color: _selectedChartType == 'Pie Chart' 
+                                ? Colors.black87 
+                                : Colors.grey[600],
+                            fontWeight: _selectedChartType == 'Pie Chart' 
+                                ? FontWeight.w600 
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'Progress Chart',
+                    child: Row(
+                      children: [
+                        Icon(
+                          _selectedChartType == 'Progress Chart' 
+                              ? Icons.radio_button_checked 
+                              : Icons.radio_button_unchecked,
+                          color: _selectedChartType == 'Progress Chart' 
+                              ? const Color(0xFF4facfe) 
+                              : Colors.grey[400],
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Progress Chart',
+                          style: TextStyle(
+                            color: _selectedChartType == 'Progress Chart' 
+                                ? Colors.black87 
+                                : Colors.grey[600],
+                            fontWeight: _selectedChartType == 'Progress Chart' 
+                                ? FontWeight.w600 
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -594,8 +729,13 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                   ),
                 )
               : SizedBox(
-                  height: 200,
-                  child: BarChart(
+                  height: _selectedChartType == 'Pie Chart' ? 280 : 
+                          _selectedChartType == 'Progress Chart' ? 120 : 200, // Reduced height for progress chart
+                  child: _selectedChartType == 'Pie Chart' 
+                      ? _buildPieChart(allCategories)
+                      : _selectedChartType == 'Progress Chart'
+                          ? _buildProgressChart(allCategories)
+                          : BarChart(
                     BarChartData(
                       alignment: BarChartAlignment.spaceAround,
                       maxY: maxY,
@@ -674,19 +814,15 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                       ),
                       backgroundColor: Colors.transparent,
                       barGroups: List.generate(topCategories.length, (i) {
-                        // Assign different colors to categories
-                        final colors = [
-                          const Color(0xFF4facfe), // Blue
-                          const Color(0xFF00D4AA), // Teal
-                          const Color(0xFFE74C3C), // Red
-                          const Color(0xFFF39C12), // Orange
-                          const Color(0xFF9B59B6), // Purple
-                        ];
+                        // Use CategoryService colors to match category colors
+                        final categoryInfo = CategoryService.getCategoryInfo(topCategories[i].key);
+                        final categoryColor = categoryInfo?.color ?? Colors.grey;
+                        
                         return BarChartGroupData(
                           x: i, 
                           barRods: [BarChartRodData(
                             toY: topCategories[i].value, 
-                            color: colors[i % colors.length],
+                            color: categoryColor,
                             borderRadius: const BorderRadius.only(
                               topLeft: Radius.circular(4),
                               topRight: Radius.circular(4),
@@ -699,6 +835,163 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                     ),
                   ),
                 ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPieChart(List<MapEntry<String, double>> allCategories) {
+    final totalSpent = allCategories.fold(0.0, (sum, entry) => sum + entry.value);
+    
+    if (allCategories.isEmpty || totalSpent == 0) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.pie_chart_outline, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 8),
+            Text(
+              'No spending data for this period',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return Container(
+      height: 280, // Match the container height
+      width: double.infinity,
+      padding: const EdgeInsets.all(20), // Add padding to prevent overflow
+      child: Center(
+        child: PieChart(
+          PieChartData(
+            pieTouchData: PieTouchData(
+              enabled: true,
+              touchCallback: (FlTouchEvent event, pieTouchResponse) {
+                // Add hover/click interactions here
+              },
+            ),
+            sectionsSpace: 2,
+            centerSpaceRadius: 40, // Reduced from 40 to 25 for smaller center hole
+            sections: List.generate(allCategories.length, (i) {
+              final entry = allCategories[i];
+              final categoryInfo = CategoryService.getCategoryInfo(entry.key);
+              final percentage = (entry.value / totalSpent * 100).round();
+              
+              return PieChartSectionData(
+                color: categoryInfo?.color ?? Colors.grey,
+                value: entry.value,
+                title: '${percentage}%',
+                radius: 80, // Increased from 50 to 80 for larger pie chart
+                titleStyle: const TextStyle(
+                  fontSize: 12, // Slightly larger font for better readability
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+                titlePositionPercentageOffset: 0.6,
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressChart(List<MapEntry<String, double>> allCategories) {
+    if (allCategories.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.trending_up, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 8),
+            Text(
+              'No spending data for this period',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final totalSpent = allCategories.fold(0.0, (sum, entry) => sum + entry.value);
+    final segments = allCategories.map((entry) {
+      final categoryInfo = CategoryService.getCategoryInfo(entry.key);
+      final percentage = (entry.value / totalSpent * 100);
+      
+      return CategorySegment(
+        categoryName: entry.key,
+        amount: entry.value,
+        percentage: percentage,
+        color: categoryInfo?.color ?? Colors.grey,
+      );
+    }).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Top categories',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          // Individual segments with spacing and rounded corners
+          Row(
+            children: segments.asMap().entries.map((entry) {
+              final index = entry.key;
+              final segment = entry.value;
+              
+              return Expanded(
+                flex: (segment.percentage * 100).round(),
+                child: Container(
+                  height: 16, // Reduced from 24 to 16 for thinner bars
+                  margin: EdgeInsets.only(
+                    right: index < segments.length - 1 ? 4 : 0, // Add spacing between segments
+                  ),
+                  decoration: BoxDecoration(
+                    color: segment.color,
+                    borderRadius: BorderRadius.circular(8), // Reduced radius for thinner bars
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Percentage labels below each segment
+          Row(
+            children: segments.asMap().entries.map((entry) {
+              final index = entry.key;
+              final segment = entry.value;
+              
+              return Expanded(
+                flex: (segment.percentage * 100).round(),
+                child: Container(
+                  margin: EdgeInsets.only(
+                    right: index < segments.length - 1 ? 4 : 0, // Match segment spacing
+                  ),
+                  child: Text(
+                    '${segment.percentage.toStringAsFixed(1)}%',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
         ],
       ),
     );
@@ -720,13 +1013,24 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF16213e),
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF4facfe).withOpacity(0.1),
+            const Color(0xFF4facfe).withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF4facfe).withOpacity(0.2),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: const Color(0xFF4facfe).withOpacity(0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -741,7 +1045,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: Colors.black87,
                 ),
               ),
               TextButton(
@@ -763,11 +1067,11 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
             Center(
               child: Column(
                 children: [
-                  Icon(Icons.category_outlined, size: 48, color: Colors.grey[400]),
+                  Icon(Icons.category_outlined, size: 48, color: Colors.grey[600]),
                   const SizedBox(height: 8),
                   Text(
                     'No spending categories for this period',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
                   ),
                 ],
               ),
@@ -775,12 +1079,13 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
           else
             ...topCategories.map((entry) {
               final percent = totalSpent > 0 ? (entry.value / totalSpent * 100).round() : 0;
+              final categoryInfo = CategoryService.getCategoryInfo(entry.key);
               return _buildCategoryItem({
                 'name': entry.key,
                 'amount': entry.value,
                 'percentage': percent,
-                'color': Colors.green, // You can map category to color if you have a color map
-                'icon': Icons.category, // You can map category to icon if you have a map
+                'color': categoryInfo?.color ?? Colors.grey,
+                'icon': categoryInfo?.icon ?? Icons.category,
               });
             }),
         ],
@@ -795,12 +1100,12 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: category['color'].withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+               Container(
+                 padding: const EdgeInsets.all(8),
+                 decoration: BoxDecoration(
+                   color: category['color'].withOpacity(0.05),
+                   borderRadius: BorderRadius.circular(8),
+                 ),
                 child: Icon(
                   category['icon'],
                   color: category['color'],
@@ -816,7 +1121,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                       category['name'],
                       style: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        color: Colors.white,
+                        color: Colors.black87,
                       ),
                     ),
                     Text(
@@ -841,7 +1146,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
           const SizedBox(height: 8),
           LinearProgressIndicator(
             value: category['percentage'] / 100,
-            backgroundColor: Colors.grey[800],
+            backgroundColor: Colors.grey[300],
             valueColor: AlwaysStoppedAnimation<Color>(category['color']),
           ),
         ],

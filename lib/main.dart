@@ -8,7 +8,7 @@ import 'app.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
 import 'package:smart_receipt/core/services/premium_service.dart';
-import 'package:smart_receipt/core/services/subscription_reminder_service.dart';
+import 'package:smart_receipt/core/services/personal_subscription_reminder_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +29,11 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await PremiumService.initialize();
+  await PersonalSubscriptionReminderService.initialize();
+
+  // Initialize subscription reminders for existing bills
+  final allBills = LocalStorageService.getAllBills();
+  await PersonalSubscriptionReminderService.initializeRemindersForAllSubscriptions(allBills);
 
   runApp(
     ProviderScope(

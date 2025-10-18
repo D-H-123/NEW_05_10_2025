@@ -130,8 +130,16 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
           _startDateController.text = _formatDate(bill.date!);
         }
         
-        // Set end date if available (this would need to be stored in the bill model)
-        // For now, we'll leave it empty as it's not currently stored
+        // Set end date if available
+        if (bill.subscriptionEndDate != null) {
+          print('🔍 DEBUG: Loading end date: ${bill.subscriptionEndDate}');
+          _selectedEndDate = bill.subscriptionEndDate;
+          _endDateController.text = _formatDate(bill.subscriptionEndDate!);
+          _isEndDateEnabled = true;
+          print('🔍 DEBUG: End date loaded - selected: $_selectedEndDate, controller: ${_endDateController.text}, enabled: $_isEndDateEnabled');
+        } else {
+          print('🔍 DEBUG: No end date found in bill');
+        }
         break;
     }
   }
@@ -283,7 +291,8 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         const SizedBox(height: 16),
         _buildDateField(
           controller: _startDateController,
-          label: 'Start Date',
+          label: 'Last Payment Date',
+          hint: 'When did you last pay for this subscription?',
           selectedDate: _selectedStartDate,
           onDateSelected: (date) {
             setState(() {
@@ -291,7 +300,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
               _startDateController.text = _formatDate(date);
             });
           },
-          allowFutureDates: false, // Subscription start date should not allow future dates
+          allowFutureDates: false, // Last payment date should not allow future dates
         ),
         const SizedBox(height: 16),
         CheckboxListTile(
@@ -314,6 +323,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
           _buildDateField(
             controller: _endDateController,
             label: 'End Date',
+            hint: 'When will this subscription end? (Optional)',
             selectedDate: _selectedEndDate,
             onDateSelected: (date) {
               setState(() {
@@ -347,12 +357,14 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     required Function(DateTime) onDateSelected,
     String? Function(String?)? validator,
     bool allowFutureDates = false, // New parameter to control future dates
+    String? hint,
   }) {
     return TextFormField(
       controller: controller,
       readOnly: true,
       decoration: InputDecoration(
         labelText: label,
+        hintText: hint,
         border: const OutlineInputBorder(),
         prefixIcon: const Icon(Icons.calendar_today),
         suffixIcon: IconButton(
@@ -555,6 +567,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
           'startDate': _selectedStartDate,
           'endDate': _selectedEndDate,
         });
+        print('🔍 DEBUG: Form submission - endDate: $_selectedEndDate, isEndDateEnabled: $_isEndDateEnabled');
         break;
     }
 

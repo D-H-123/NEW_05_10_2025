@@ -13,6 +13,7 @@ import '../../core/widgets/subscription_paywall.dart';
 import '../../core/widgets/usage_tracker.dart';
 import '../../core/services/currency_service.dart';
 import '../../core/services/local_storage_service.dart';
+import '../../core/services/personal_subscription_reminder_service.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   final double growthPercentage;
@@ -287,10 +288,22 @@ class _HomePageState extends ConsumerState<HomePage> {
                 location: null,
                 notes: formData['notes'] ?? '',
                 subscriptionType: subscriptionType,
+                subscriptionEndDate: isSubscription ? formData['endDate'] : null, // Include end date for subscriptions
               );
               
               // Save the bill to database
               ref.read(billProvider.notifier).addBill(bill);
+              
+              // If this is a subscription, schedule reminders
+              if (isSubscription) {
+                try {
+                  print('🔍 DEBUG: Scheduling reminders for new subscription: ${bill.title ?? bill.vendor}');
+                  await PersonalSubscriptionReminderService.updateSubscriptionReminders(bill);
+                  print('🔍 DEBUG: Reminders scheduled successfully');
+                } catch (e) {
+                  print('🔍 DEBUG: Error scheduling reminders: $e');
+                }
+              }
               
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(

@@ -19,10 +19,10 @@ class BillAdapter extends TypeAdapter<Bill> {
     return Bill(
       id: fields[0] as String,
       imagePath: fields[1] as String,
-      vendor: fields[2] as String,
-      date: fields[3] as DateTime,
-      total: fields[4] as double,
-      ocrText: fields[5] as String,
+      vendor: fields[2] as String?,
+      date: fields[3] as DateTime?,
+      total: fields[4] as double?,
+      ocrText: fields[5] as String?,
       categoryId: fields[6] as String?,
       currency: fields[7] as String?,
       subtotal: fields[8] as double?,
@@ -30,6 +30,10 @@ class BillAdapter extends TypeAdapter<Bill> {
       notes: fields[10] as String?,
       tags: (fields[13] as List?)?.cast<String>(),
       location: fields[14] as String?,
+      title: fields[15] as String?,
+      subscriptionType: fields[16] as String?,
+      subscriptionEndDate: fields[17] as DateTime?,
+      subscriptionStartDate: fields[18] as DateTime?,
       createdAt: fields[11] as DateTime?,
       updatedAt: fields[12] as DateTime?,
     );
@@ -38,7 +42,7 @@ class BillAdapter extends TypeAdapter<Bill> {
   @override
   void write(BinaryWriter writer, Bill obj) {
     writer
-      ..writeByte(15)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -68,7 +72,15 @@ class BillAdapter extends TypeAdapter<Bill> {
       ..writeByte(13)
       ..write(obj.tags)
       ..writeByte(14)
-      ..write(obj.location);
+      ..write(obj.location)
+      ..writeByte(15)
+      ..write(obj.title)
+      ..writeByte(16)
+      ..write(obj.subscriptionType)
+      ..writeByte(17)
+      ..write(obj.subscriptionEndDate)
+      ..writeByte(18)
+      ..write(obj.subscriptionStartDate);
   }
 
   @override

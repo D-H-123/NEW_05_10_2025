@@ -433,12 +433,16 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
           notes: _isNotesEnabled ? _notesController.text.trim() : '',
           tags: tagList,
           location: locationValue,
+          subscriptionType: existingBill.subscriptionType, // Preserve existing subscription type
+          subscriptionEndDate: existingBill.subscriptionEndDate, // Preserve existing end date
           createdAt: existingBill.createdAt,
           updatedAt: DateTime.now(),
         );
 
         // Update the bill in database
         ref.read(billProvider.notifier).updateBill(updatedBill);
+
+        print('🔍 DEBUG: Scanned receipt updated successfully - ID: ${updatedBill.id}, Title: ${updatedBill.vendor}, Total: ${updatedBill.total}');
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

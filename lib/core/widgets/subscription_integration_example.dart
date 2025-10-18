@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:smart_receipt/core/widgets/subscription_status_card.dart';
-import 'package:smart_receipt/core/widgets/subscription_reminder_settings.dart';
+import 'package:smart_receipt/core/widgets/simplified_subscription_reminder_settings.dart';
 
 /// Example showing how to integrate subscription reminder widgets
 /// into your existing home page or other screens
@@ -20,7 +20,7 @@ class SubscriptionIntegrationExample extends StatelessWidget {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const SubscriptionReminderSettings(),
+                  builder: (context) => const SimplifiedSubscriptionReminderSettings(),
                 ),
               );
             },
@@ -141,7 +141,7 @@ class SubscriptionDrawerExample extends StatelessWidget {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const SubscriptionReminderSettings(),
+                  builder: (context) => const SimplifiedSubscriptionReminderSettings(),
                 ),
               );
             },

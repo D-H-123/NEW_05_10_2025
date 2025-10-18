@@ -60,6 +60,14 @@ class Bill extends HiveObject {
   @HiveField(16)
   final String? subscriptionType; // 'weekly', 'monthly', 'yearly', or null for non-subscriptions
 
+  // Subscription end date for fixed-term subscriptions
+  @HiveField(17)
+  final DateTime? subscriptionEndDate;
+
+  // Subscription start date (when subscription began)
+  @HiveField(18)
+  final DateTime? subscriptionStartDate;
+
   Bill({
     required this.id,
     required this.imagePath,
@@ -76,6 +84,8 @@ class Bill extends HiveObject {
     this.location,
     this.title,
     this.subscriptionType,
+    this.subscriptionEndDate,
+    this.subscriptionStartDate,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : ocrText = ocrText ?? 'Manual entry',

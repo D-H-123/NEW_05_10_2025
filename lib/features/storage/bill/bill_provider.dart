@@ -45,6 +45,7 @@ class BillNotifier extends StateNotifier<List<Bill>> {
         location: bill.location,
         title: bill.title,
         subscriptionType: newFrequency,
+        subscriptionEndDate: bill.subscriptionEndDate, // Preserve existing end date
         createdAt: bill.createdAt,
         updatedAt: DateTime.now(),
       );

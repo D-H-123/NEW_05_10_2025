@@ -10,7 +10,7 @@ import '../../core/widgets/currency_picker.dart';
 import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
 import '../../core/services/premium_service.dart';
-import '../../core/widgets/subscription_reminder_settings.dart';
+import '../../core/widgets/simplified_subscription_reminder_settings.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -20,7 +20,6 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  late bool _dateTranslation;
   late bool _location;
   late bool _calendarResults;
   late bool _notes;
@@ -29,7 +28,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _dateTranslation = LocalStorageService.getBoolSetting(LocalStorageService.kDateTranslation);
     _location = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
     _calendarResults = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
     _notes = LocalStorageService.getBoolSetting(LocalStorageService.kNotes);
@@ -83,129 +81,165 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               
               const ResponsiveSpacer(height: 32),
               
-              // Settings Sections
-              ResponsiveText(
-                'App Preferences',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              
+              // Priority 1: Essential Settings
+              _buildSectionHeader('Essential Settings', Icons.settings, Colors.blue),
               const ResponsiveSpacer(height: 16),
               
-              // Default Currency
-              ResponsiveCard(
-                child: ListTile(
-                  leading: const Icon(Icons.currency_exchange),
-                  title: const Text('Default Currency'),
-                  subtitle: Consumer(
-                    builder: (context, ref, child) {
-                      final currentCode = _selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode;
-                      final symbol = ref.read(currencyProvider.notifier).symbolFor(currentCode);
-                      return Row(
+              // Currency - Most Important
+              _buildModernSettingCard(
+                context,
+                icon: Icons.currency_exchange,
+                iconColor: Colors.green,
+                title: 'Default Currency',
+                subtitle: 'Set your preferred currency for receipts',
+                trailing: Consumer(
+                  builder: (context, ref, child) {
+                    final currentCode = _selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode;
+                    final symbol = ref.read(currencyProvider.notifier).symbolFor(currentCode);
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.green.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            width: 24,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Center(
-                              child: Text(
-                                symbol,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                          Text(
+                            symbol,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Text(currentCode),
+                          const SizedBox(width: 4),
+                          Text(
+                            currentCode,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green,
+                            ),
+                          ),
                         ],
-                      );
-                    },
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    final current = ref.read(currencyProvider).currencyCode;
-                    await showCurrencyPicker(
-                      context: context,
-                      selectedCode: _selectedCurrencyCode ?? current,
-                      onSelected: (code) async {
-                        await ref.read(currencyProvider.notifier).setCurrency(code);
-                        if (mounted) {
-                          setState(() {
-                            _selectedCurrencyCode = code;
-                          });
-                        }
-                      },
+                      ),
                     );
                   },
                 ),
-              ),
-
-              // Date Translation Setting
-              ResponsiveCard(
-                child: _buildSettingTile(
-                  context,
-                  icon: Icons.translate,
-                  title: 'Date Translation',
-                  subtitle: 'Automatically translate receipt dates',
-                  value: _dateTranslation,
-                  onChanged: (v) async {
-                    setState(() => _dateTranslation = v);
-                    await LocalStorageService.setBoolSetting(LocalStorageService.kDateTranslation, v);
-                  },
-                ),
+                onTap: () async {
+                  final current = ref.read(currencyProvider).currencyCode;
+                  await showCurrencyPicker(
+                    context: context,
+                    selectedCode: _selectedCurrencyCode ?? current,
+                    onSelected: (code) async {
+                      await ref.read(currencyProvider.notifier).setCurrency(code);
+                      if (mounted) {
+                        setState(() {
+                          _selectedCurrencyCode = code;
+                        });
+                      }
+                    },
+                  );
+                },
               ),
               
-              // Location Setting
-              ResponsiveCard(
-                child: _buildSettingTile(
-                  context,
-                  icon: Icons.location_on,
-                  title: 'Location Services',
-                  subtitle: 'Track receipt locations (Premium feature)',
+              
+              const ResponsiveSpacer(height: 32),
+              
+              // Priority 2: Premium Features
+              _buildSectionHeader('Premium Features', Icons.star, Colors.amber),
+              const ResponsiveSpacer(height: 16),
+              
+              // Location Services
+              _buildModernSettingCard(
+                context,
+                icon: Icons.location_on,
+                iconColor: Colors.orange,
+                title: 'Location Services',
+                subtitle: 'Track receipt locations automatically',
+                isPremium: true,
+                trailing: Switch(
                   value: _location,
-                  isPremium: true,
                   onChanged: (v) async {
                     setState(() => _location = v);
                     await LocalStorageService.setBoolSetting(LocalStorageService.kLocation, v);
                   },
+                  activeColor: Colors.orange,
                 ),
+                onTap: () async {
+                  setState(() => _location = !_location);
+                  await LocalStorageService.setBoolSetting(LocalStorageService.kLocation, _location);
+                },
               ),
               
-              // Calendar Results Setting
-              ResponsiveCard(
-                child: _buildSettingTile(
-                  context,
-                  icon: Icons.calendar_today,
-                  title: 'Calendar Integration',
-                  subtitle: 'Show receipts in calendar view',
+              const ResponsiveSpacer(height: 12),
+              
+              // Calendar Integration
+              _buildModernSettingCard(
+                context,
+                icon: Icons.calendar_today,
+                iconColor: Colors.purple,
+                title: 'Calendar Integration',
+                subtitle: 'Show receipts in calendar view',
+                trailing: Switch(
                   value: _calendarResults,
                   onChanged: (v) async {
                     setState(() => _calendarResults = v);
                     await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, v);
                   },
+                  activeColor: Colors.purple,
                 ),
+                onTap: () async {
+                  setState(() => _calendarResults = !_calendarResults);
+                  await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, _calendarResults);
+                },
               ),
               
-              // Notes Setting
-              ResponsiveCard(
-                child: _buildSettingTile(
-                  context,
-                  icon: Icons.note,
-                  title: 'Notes Support',
-                  subtitle: 'Enable notes for receipts',
+              const ResponsiveSpacer(height: 12),
+              
+              // Notes Support
+              _buildModernSettingCard(
+                context,
+                icon: Icons.note_add,
+                iconColor: Colors.teal,
+                title: 'Notes Support',
+                subtitle: 'Add notes to your receipts',
+                trailing: Switch(
                   value: _notes,
                   onChanged: (v) async {
                     setState(() => _notes = v);
                     await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, v);
                   },
+                  activeColor: Colors.teal,
                 ),
+                onTap: () async {
+                  setState(() => _notes = !_notes);
+                  await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, _notes);
+                },
+              ),
+              
+              const ResponsiveSpacer(height: 32),
+              
+              // Priority 3: Subscription Management
+              _buildSectionHeader('Subscription Management', Icons.account_balance_wallet, Colors.indigo),
+              const ResponsiveSpacer(height: 16),
+              
+              // Subscription Reminders
+              _buildModernSettingCard(
+                context,
+                icon: Icons.notifications_active,
+                iconColor: Colors.blue,
+                title: 'Subscription Reminders',
+                subtitle: 'Manage your subscription reminder notifications',
+                isNew: true,
+                trailing: const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey,
+                  size: 16,
+                ),
+                onTap: () => _navigateToSubscriptionReminders(context),
               ),
               
               const ResponsiveSpacer(height: 32),
@@ -258,63 +292,57 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 const ResponsiveSpacer(height: 32),
               ],
               
-              // Additional Options
-              ResponsiveText(
-                'Additional Options',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              
+              // Priority 4: Additional Options
+              _buildSectionHeader('Additional Options', Icons.more_horiz, Colors.grey),
               const ResponsiveSpacer(height: 16),
               
-              // Subscription Reminders
-              ResponsiveCard(
-                onTap: () => _navigateToSubscriptionReminders(context),
-                child: _buildActionTile(
-                  context,
-                  icon: Icons.notifications_active,
-                  title: 'Subscription Reminders',
-                  subtitle: 'Manage your subscription reminder notifications',
-                  color: Colors.blue,
+              // Export Data
+              _buildModernSettingCard(
+                context,
+                icon: Icons.download,
+                iconColor: AppTheme.primaryGradientStart,
+                title: 'Export Data',
+                subtitle: 'Export all receipts as CSV or PDF',
+                trailing: const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey,
+                  size: 16,
                 ),
+                onTap: () => _showExportDialog(context),
               ),
               
-              // Export Data
-              ResponsiveCard(
-                onTap: () => _showExportDialog(context),
-                child: _buildActionTile(
-                  context,
-                  icon: Icons.download,
-                  title: 'Export Data',
-                  subtitle: 'Export all receipts as CSV or PDF',
-                  color: AppTheme.primaryGradientStart,
-                ),
-              ),
+              const ResponsiveSpacer(height: 12),
               
               // Privacy Policy
-              ResponsiveCard(
-                onTap: () => _showPrivacyPolicy(context),
-                child: _buildActionTile(
-                  context,
-                  icon: Icons.privacy_tip,
-                  title: 'Privacy Policy',
-                  subtitle: 'View our privacy policy',
-                  color: AppTheme.infoColor,
+              _buildModernSettingCard(
+                context,
+                icon: Icons.privacy_tip,
+                iconColor: AppTheme.infoColor,
+                title: 'Privacy Policy',
+                subtitle: 'View our privacy policy',
+                trailing: const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey,
+                  size: 16,
                 ),
+                onTap: () => _showPrivacyPolicy(context),
               ),
               
+              const ResponsiveSpacer(height: 12),
+              
               // About
-              ResponsiveCard(
-                onTap: () => _showAboutDialog(context),
-                child: _buildActionTile(
-                  context,
-                  icon: Icons.info,
-                  title: 'About',
-                  subtitle: 'App version and information',
-                  color: Colors.grey[600]!,
+              _buildModernSettingCard(
+                context,
+                icon: Icons.info,
+                iconColor: Colors.grey[600]!,
+                title: 'About',
+                subtitle: 'App version and information',
+                trailing: const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey,
+                  size: 16,
                 ),
+                onTap: () => _showAboutDialog(context),
               ),
               
               const ResponsiveSpacer(height: 80), // Space for bottom navigation
@@ -620,123 +648,176 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildSettingTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required Function(bool) onChanged,
-    bool isPremium = false,
-  }) {
+
+  // Modern Section Header
+  Widget _buildSectionHeader(String title, IconData icon, Color color) {
     return Row(
       children: [
         Container(
-          width: 48,
-          height: 48,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
-            color: AppTheme.primaryGradientStart.withOpacity(0.1),
-            borderRadius: AppTheme.smallBorderRadius,
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
             icon,
-            color: AppTheme.primaryGradientStart,
-            size: 24,
+            color: color,
+            size: 18,
           ),
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  ResponsiveText(
-                    title,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (isPremium) ...[
-                    const SizedBox(width: 8),
-                    const StatusChip(
-                      label: 'Premium',
-                      type: StatusType.warning,
-                      icon: Icons.star,
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 4),
-              ResponsiveText(
-                subtitle,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
           ),
-        ),
-        Switch.adaptive(
-          value: value,
-          onChanged: onChanged,
-          activeColor: AppTheme.primaryGradientStart,
         ),
       ],
     );
   }
 
-  Widget _buildActionTile(
+  // Modern Setting Card
+  Widget _buildModernSettingCard(
     BuildContext context, {
     required IconData icon,
+    required Color iconColor,
     required String title,
     required String subtitle,
-    required Color color,
+    required Widget trailing,
+    required VoidCallback onTap,
+    bool isPremium = false,
+    bool isNew = false,
   }) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: AppTheme.smallBorderRadius,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 24,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ResponsiveText(
-                title,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                // Icon
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: iconColor,
+                    size: 24,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              ResponsiveText(
-                subtitle,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey[600],
+                
+                const SizedBox(width: 16),
+                
+                // Content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                          if (isPremium) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.star,
+                                    color: Colors.amber[700],
+                                    size: 12,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Premium',
+                                    style: TextStyle(
+                                      color: Colors.amber[700],
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (isNew) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'NEW',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                
+                const SizedBox(width: 16),
+                
+                // Trailing
+                trailing,
+              ],
+            ),
           ),
         ),
-        Icon(
-          Icons.arrow_forward_ios,
-          color: Colors.grey[400],
-          size: 16,
-        ),
-      ],
+      ),
     );
   }
+
 
   void _showExportDialog(BuildContext context) {
     showDialog(
@@ -836,7 +917,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const SubscriptionReminderSettings(),
+        builder: (context) => const SimplifiedSubscriptionReminderSettings(),
       ),
     );
   }

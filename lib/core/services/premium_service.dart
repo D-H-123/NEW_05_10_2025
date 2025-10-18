@@ -1,7 +1,6 @@
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
-import 'subscription_reminder_service.dart';
 
 enum SubscriptionTier {
   free,
@@ -40,8 +39,6 @@ class PremiumService {
   static Future<void> initialize() async {
     await _loadUserData();
     await _initializePurchases();
-    await SubscriptionReminderService.initialize();
-    await _scheduleReminders();
   }
   
   // Load user data from SharedPreferences
@@ -175,7 +172,6 @@ class PremiumService {
     }
     
     _saveUserData();
-    _scheduleReminders();
   }
   
   // Restore previous purchases
@@ -226,8 +222,7 @@ class PremiumService {
     _isTrialActive = true;
     _trialEndDate = DateTime.now().add(const Duration(days: 7));
     _currentTier = SubscriptionTier.pro;
-    await _saveUserData();
-    await _scheduleReminders();
+    await     _saveUserData();
   }
   
   // Get subscription products
@@ -294,10 +289,10 @@ class PremiumService {
     }
   }
   
+  
   // Get pricing information
   static Map<String, String> getPricingInfo() {
     return {
-      'basic_weekly': '\$1.99/week',
       'basic_monthly': '\$4.99/month',
       'basic_quarterly': '\$12.99/quarter (Save 13%)',
       'basic_yearly': '\$49.99/year (Save 17%)',
@@ -318,50 +313,11 @@ class PremiumService {
     await _saveUserData();
   }
   
-  // Schedule subscription reminders
-  static Future<void> _scheduleReminders() async {
-    if (!_notificationsEnabled) return;
-    
-    // Cancel existing reminders
-    await SubscriptionReminderService.cancelAllReminders();
-    
-    // Schedule trial ending reminder
-    if (_isTrialActive && _trialEndDate != null) {
-      await SubscriptionReminderService.scheduleTrialEndingReminder(
-        trialEndDate: _trialEndDate!,
-        tier: _currentTier.name,
-      );
-    }
-    
-    // Schedule subscription renewal reminders
-    if (_subscriptionEndDate != null && _currentProductId != null) {
-      await SubscriptionReminderService.scheduleRenewalReminder(
-        renewalDate: _subscriptionEndDate!,
-        subscriptionType: _currentProductId!,
-        tier: _currentTier.name,
-      );
-    }
-    
-    // Schedule usage limit reminders for free users
-    if (!isPremium) {
-      await SubscriptionReminderService.scheduleUsageLimitReminder(
-        currentScans: _scanCount,
-        maxScans: _maxFreeScans,
-        tier: 'Basic',
-      );
-    }
-  }
   
   // Enable/disable notifications
   static Future<void> setNotificationsEnabled(bool enabled) async {
     _notificationsEnabled = enabled;
     await _saveUserData();
-    
-    if (enabled) {
-      await _scheduleReminders();
-    } else {
-      await SubscriptionReminderService.cancelAllReminders();
-    }
   }
   
   // Get subscription info

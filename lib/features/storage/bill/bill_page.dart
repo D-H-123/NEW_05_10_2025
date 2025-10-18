@@ -15,8 +15,10 @@ import '../../../core/services/category_service.dart';
 import '../../../core/services/premium_service.dart';
 import '../../../core/widgets/subscription_paywall.dart';
 import '../../../core/services/subscription_utils.dart';
+import '../../../core/services/personal_subscription_reminder_service.dart';
 import '../../../core/widgets/filter_dropdown.dart';
 import '../../../core/widgets/subscription_badge.dart';
+import '../../../core/widgets/brand_icon_widget.dart';
 import '../../home/dynamic_expense_modal.dart';
 import '../models/bill_model.dart';
 
@@ -37,6 +39,7 @@ class _BillsPageState extends ConsumerState<BillsPage> {
   String _selectedLocation = 'all'; // all, or specific location
   String _selectedSource = 'all'; // all, scanned, manual
   String _selectedCategoryFilter = 'all'; // all, or specific category
+  List<String> _selectedCategories = []; // For multi-select categories
   
   // Calendar view state
   String _viewMode = 'list'; // 'list' or 'calendar'
@@ -268,23 +271,82 @@ class _BillsPageState extends ConsumerState<BillsPage> {
     );
   }
 
-  void _updateSubscriptionFrequency(dynamic bill, String newFrequency) {
+  void _updateSubscriptionFrequency(dynamic bill, String newFrequency) async {
     // Update the subscription frequency in your provider/database
     ref.read(billProvider.notifier).updateBillSubscriptionFrequency(bill.id, newFrequency);
     
-    // Show success message
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Subscription frequency changed to $newFrequency'
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
+    // Update the bill object with new frequency
+    final updatedBill = Bill(
+      id: bill.id,
+      imagePath: bill.imagePath,
+      vendor: bill.vendor,
+      date: bill.date,
+      total: bill.total,
+      ocrText: bill.ocrText,
+      categoryId: bill.categoryId,
+      currency: bill.currency,
+      subtotal: bill.subtotal,
+      tax: bill.tax,
+      notes: bill.notes,
+      tags: bill.tags,
+      location: bill.location,
+      title: bill.title,
+      subscriptionType: newFrequency,
+      subscriptionEndDate: bill.subscriptionEndDate, // Preserve existing end date
+      subscriptionStartDate: bill.subscriptionStartDate, // Preserve existing start date
+      createdAt: bill.createdAt,
+      updatedAt: DateTime.now(),
     );
+    
+    // Update subscription reminders with new frequency
+    try {
+      await PersonalSubscriptionReminderService.updateSubscriptionReminders(updatedBill);
+      
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Subscription frequency changed to $newFrequency and reminders updated'
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    } catch (e) {
+      // Handle permission errors gracefully
+      if (e.toString().contains('exact_alarms_not_permitted')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Subscription frequency changed to $newFrequency! Note: Exact alarm permission is required for precise reminders.'
+            ),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Subscription frequency changed to $newFrequency! Warning: Could not update reminders - ${e.toString()}'
+            ),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
   }
 
   void _shareBill(dynamic bill) async {
@@ -672,14 +734,26 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
 
   String _getBillCategory(dynamic bill) {
     // Manual entries from plus button have ocrText = 'Manual entry'
-    // Scanned receipts from camera have actual OCR text content (not 'Manual entry')
-    if (bill.ocrText == 'Manual entry') {
-      return 'manual'; // Created via plus button form
-    } else if (bill.ocrText != null && bill.ocrText.isNotEmpty && bill.ocrText != 'Manual entry') {
+    // Subscription entries have ocrText = 'Subscription entry'
+    // Scanned receipts from camera have actual OCR text content (not 'Manual entry' or 'Subscription entry')
+    if (bill.ocrText == 'Manual entry' || bill.ocrText == 'Subscription entry') {
+      return 'manual'; // Created via plus button form or subscription
+    } else if (bill.ocrText != null && bill.ocrText.isNotEmpty && 
+               bill.ocrText != 'Manual entry' && bill.ocrText != 'Subscription entry') {
       return 'scanned'; // Has actual OCR text from camera scanning
     } else {
       return 'manual'; // Fallback for any other cases
     }
+  }
+
+  /// Check if we should show brand icon instead of image
+  bool _shouldShowBrandIcon(dynamic bill) {
+    return bill.ocrText == 'Manual entry' || bill.ocrText == 'Subscription entry';
+  }
+
+  /// Get the display name for brand icon
+  String _getBrandDisplayName(dynamic bill) {
+    return (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown';
   }
 
   List<String> _getUniqueLocations(List<dynamic> bills) {
@@ -805,6 +879,9 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
 
   // Responsive Filter Layout
   Widget _buildResponsiveFilterLayout(BuildContext context, List<dynamic> filteredBills) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final spacing = screenWidth < 360 ? 4.0 : 6.0; // Smaller spacing for very small screens
+    
     // Check if location filter is enabled
     if (_isLocationFilterEnabled) {
       // Use 2x2 grid layout when location is enabled to prevent overflow
@@ -828,7 +905,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                   showColors: false,
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: spacing),
               Expanded(
                 child: FilterDropdown(
                   selectedValue: _selectedCategoryFilter,
@@ -843,11 +920,26 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                   showIcons: true,
                   showColors: true,
                   isCategoryFilter: true, // This will remove icons and use category colors
+                  allowMultiSelect: true, // Enable multi-select
+                  selectedValues: _selectedCategories,
+                  onMultiChanged: (values) {
+                    setState(() {
+                      _selectedCategories = values ?? [];
+                      // Update single select for backward compatibility
+                      if (_selectedCategories.isEmpty) {
+                        _selectedCategoryFilter = 'all';
+                      } else if (_selectedCategories.length == 1) {
+                        _selectedCategoryFilter = _selectedCategories.first;
+                      } else {
+                        _selectedCategoryFilter = 'multiple';
+                      }
+                    });
+                  },
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: spacing),
           // Second row: Location (full width)
           FilterDropdown(
             selectedValue: _selectedLocation,
@@ -883,7 +975,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               showColors: false,
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: spacing),
           Expanded(
             child: FilterDropdown(
               selectedValue: _selectedCategoryFilter,
@@ -898,6 +990,21 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               showIcons: true,
               showColors: true,
               isCategoryFilter: true, // This will remove icons and use category colors
+              allowMultiSelect: true, // Enable multi-select
+              selectedValues: _selectedCategories,
+              onMultiChanged: (values) {
+                setState(() {
+                  _selectedCategories = values ?? [];
+                  // Update single select for backward compatibility
+                  if (_selectedCategories.isEmpty) {
+                    _selectedCategoryFilter = 'all';
+                  } else if (_selectedCategories.length == 1) {
+                    _selectedCategoryFilter = _selectedCategories.first;
+                  } else {
+                    _selectedCategoryFilter = 'multiple';
+                  }
+                });
+              },
             ),
           ),
         ],
@@ -1184,11 +1291,20 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
         }
       }
       
-      // Then filter by category
+      // Then filter by category (support both single and multi-select)
       if (_selectedCategoryFilter != 'all') {
         final billCategory = bill.categoryId?.toLowerCase() ?? '';
-        if (billCategory != _selectedCategoryFilter.toLowerCase()) {
-          return false;
+        
+        // Handle multi-select categories
+        if (_selectedCategories.isNotEmpty) {
+          if (!_selectedCategories.any((cat) => cat.toLowerCase() == billCategory)) {
+            return false;
+          }
+        } else {
+          // Handle single select
+          if (billCategory != _selectedCategoryFilter.toLowerCase()) {
+            return false;
+          }
         }
       }
       
@@ -1505,11 +1621,14 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           // Organized Filter Section - Only show in list view
           if (_viewMode == 'list') ...[
            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.all(16),
+              margin: EdgeInsets.symmetric(
+                horizontal: MediaQuery.of(context).size.width * 0.04,
+                vertical: 6,
+              ),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.grey[200]!),
                 boxShadow: [
                   BoxShadow(
@@ -1525,37 +1644,37 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                   // Filter Header
                   Row(
                     children: [
-                      Icon(Icons.filter_list, size: 20, color: Colors.blue[600]),
-                      const SizedBox(width: 8),
+                      Icon(Icons.filter_list, size: 18, color: Colors.blue[600]),
+                      const SizedBox(width: 6),
                       Text(
                         'Filter Receipts',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.grey[800],
-                          fontSize: 16,
+                          fontSize: 14,
                         ),
                       ),
                       const Spacer(),
                       // Premium indicator
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [Colors.amber[400]!, Colors.amber[600]!],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.star, size: 12, color: Colors.white),
-                            const SizedBox(width: 4),
+                            Icon(Icons.star, size: 10, color: Colors.white),
+                            const SizedBox(width: 3),
                             Text(
                               'Premium',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
@@ -1565,7 +1684,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
            ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   
                   // Responsive Filter Layout
                   _buildResponsiveFilterLayout(context, filteredBills),
@@ -1581,7 +1700,9 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
             Container(
               height: 50,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: ListView.builder(
+              child: Material(
+                color: Colors.transparent,
+                child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: sortedYears.length,
                 itemBuilder: (context, yearIndex) {
@@ -1653,6 +1774,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                 },
               ),
             ),
+            ),
           ],
           
         // Bills List
@@ -1723,20 +1845,45 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                               decoration: BoxDecoration(
                                                 color: Colors.white,
                                                 borderRadius: BorderRadius.circular(12),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.08),
+                                                    blurRadius: 8,
+                                                    offset: const Offset(0, 2),
+                                                    spreadRadius: 0,
+                                                  ),
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.04),
+                                                    blurRadius: 4,
+                                                    offset: const Offset(0, 1),
+                                                    spreadRadius: 0,
+                                                  ),
+                                                ],
                                               ),
                                             child: Row(
                                               children: [
-                                                // Receipt Image (LEFT SIDE - UNCHANGED)
+                                                // Receipt Image or Brand Icon (LEFT SIDE)
                                                 Container(
                                                   width: 80,
                                                   height: 100,
                                                   decoration: BoxDecoration(
                                                     borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-                                                    image: DecorationImage(
+                                                    color: _shouldShowBrandIcon(bill) ? Colors.grey[100] : null,
+                                                    image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
                                                       image: FileImage(File(bill.imagePath)),
                                                       fit: BoxFit.cover,
                                                     ),
                                                   ),
+                                                  child: _shouldShowBrandIcon(bill)
+                                                      ? Center(
+                                                          child: ReceiptBrandIcon(
+                                                            name: _getBrandDisplayName(bill),
+                                                            category: bill.categoryId,
+                                                            size: 50,
+                                                            isSubscription: bill.subscriptionType != null,
+                                                          ),
+                                                        )
+                                                      : null,
                                                 ),
                                                 
                                                 // Bill Details
@@ -1997,17 +2144,50 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                               _updateSubscriptionFrequency(bill, newFrequency);
                             },
                             child: Card(
-                            child: Column(
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                    spreadRadius: 0,
+                                  ),
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.04),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 1),
+                                    spreadRadius: 0,
+                                  ),
+                                ],
+                              ),
+                              child: Column(
                               children: [
                                 Expanded(
                                   child: Container(
                                     decoration: BoxDecoration(
                                       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                                      image: DecorationImage(
+                                      color: _shouldShowBrandIcon(bill) ? Colors.grey[100] : null,
+                                      image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
                                         image: FileImage(File(bill.imagePath)),
                                         fit: BoxFit.cover,
                                       ),
                                     ),
+                                    child: _shouldShowBrandIcon(bill)
+                                        ? Center(
+                                            child: ReceiptBrandIcon(
+                                              name: _getBrandDisplayName(bill),
+                                              category: bill.categoryId,
+                                              size: 40,
+                                              isSubscription: bill.subscriptionType != null,
+                                            ),
+                                          )
+                                        : null,
                                   ),
                                 ),
                                 Padding(
@@ -2095,6 +2275,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                   ),
                                 ),
                               ],
+                            ),
                             ),
                           ),
                         ),
@@ -2278,7 +2459,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               title: (formData['title'] as String?)?.isNotEmpty == true
                   ? formData['title'] as String
                   : null,
-              date: formData['startDate'] ?? DateTime.now(),
+              date: formData['startDate'] ?? DateTime.now(), // This is the last payment date
               total: formData['amount'] ?? 0.0,
               currency: bill.currency ?? 'USD',
               ocrText: 'Subscription entry',
@@ -2287,6 +2468,8 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               location: bill.location,
               notes: formData['notes'] ?? '',
               subscriptionType: formData['frequency']?.toString().toLowerCase(),
+              subscriptionEndDate: formData['endDate'], // Include the end date from form data
+              subscriptionStartDate: formData['startDate'] ?? bill.subscriptionStartDate ?? bill.date, // Set start date
               createdAt: bill.createdAt,
               updatedAt: DateTime.now(),
             );
@@ -2294,12 +2477,38 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
             // Update the bill in database
             ref.read(billProvider.notifier).updateBill(updatedBill);
             
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Subscription updated successfully!'),
-                backgroundColor: Colors.green,
-              ),
-            );
+            print('🔍 DEBUG: Subscription updated successfully - ID: ${updatedBill.id}, Title: ${updatedBill.title}, EndDate: ${updatedBill.subscriptionEndDate}');
+            
+            // Update subscription reminders with new data
+            try {
+              await PersonalSubscriptionReminderService.updateSubscriptionReminders(updatedBill);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Subscription updated successfully and reminders updated!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            } catch (e) {
+              // Handle permission errors gracefully
+              if (e.toString().contains('exact_alarms_not_permitted')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Subscription updated! Note: Exact alarm permission is required for precise reminders.'),
+                    backgroundColor: Colors.orange,
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Subscription updated! Warning: Could not update reminders - ${e.toString()}'),
+                    backgroundColor: Colors.orange,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+            }
           } catch (e) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -2341,16 +2550,21 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               currency: bill.currency ?? 'USD',
               ocrText: 'Manual entry',
               categoryId: formData['category'] ?? 'Other',
+              subtotal: bill.subtotal, // Preserve existing subtotal
+              tax: bill.tax, // Preserve existing tax
               tags: [formData['category'] ?? 'Other'],
               location: bill.location,
               notes: formData['notes'] ?? '',
-              subscriptionType: null, // Manual expenses don't have subscription type
+              subscriptionType: bill.subscriptionType, // Preserve existing subscription type
+              subscriptionEndDate: bill.subscriptionEndDate, // Preserve existing end date
               createdAt: bill.createdAt,
               updatedAt: DateTime.now(),
             );
             
             // Update the bill in database
             ref.read(billProvider.notifier).updateBill(updatedBill);
+            
+            print('🔍 DEBUG: Manual expense updated successfully - ID: ${updatedBill.id}, Title: ${updatedBill.title}, Total: ${updatedBill.total}');
             
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(

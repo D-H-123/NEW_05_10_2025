@@ -297,10 +297,20 @@ class SubscriptionCardDecoration extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _getSubscriptionColor(subscriptionType),
-          width: 2,
-        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+            spreadRadius: 0,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+            spreadRadius: 0,
+          ),
+        ],
       ),
       child: Stack(
         children: [
@@ -323,18 +333,4 @@ class SubscriptionCardDecoration extends StatelessWidget {
     );
   }
 
-  Color _getSubscriptionColor(String? type) {
-    if (type == null) return const Color(0xFF43e97b);
-    
-    switch (type.toLowerCase()) {
-      case 'weekly':
-        return const Color(0xFF667eea);
-      case 'monthly':
-        return const Color(0xFFf093fb);
-      case 'yearly':
-        return const Color(0xFF4facfe);
-      default:
-        return const Color(0xFF43e97b);
-    }
-  }
 }

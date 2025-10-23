@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:smart_receipt/core/services/local_storage_service.dart';
+import 'package:smart_receipt/core/models/custom_category.dart';
 
 class CategoryService {
   static const Map<String, CategoryInfo> _categories = {
@@ -95,17 +97,36 @@ class CategoryService {
     ),
   };
 
-  /// Get all available categories
-  static List<String> get allCategories => _categories.keys.toList();
+  /// Get all available categories (predefined + custom)
+  static List<String> get allCategories {
+    final predefined = _categories.keys.toList();
+    final custom = LocalStorageService.getAllCustomCategories()
+        .map((cat) => cat.name)
+        .toList();
+    return [...predefined, ...custom];
+  }
 
-  /// Get category info (color and icon) for a given category name
+  /// Get category info (color and icon/emoji) for a given category name
   static CategoryInfo? getCategoryInfo(String category) {
-    // Direct lookup first
+    // Check custom categories first
+    final customCategories = LocalStorageService.getAllCustomCategories();
+    for (final customCat in customCategories) {
+      if (customCat.name.toLowerCase() == category.toLowerCase()) {
+        return CategoryInfo(
+          color: customCat.color,
+          icon: Icons.label, // Default icon for custom categories
+          keywords: customCat.keywords,
+          emoji: customCat.emoji, // Custom emoji
+        );
+      }
+    }
+
+    // Direct lookup in predefined categories
     if (_categories.containsKey(category)) {
       return _categories[category];
     }
 
-    // Try case-insensitive lookup
+    // Try case-insensitive lookup in predefined
     final lowerCategory = category.toLowerCase();
     for (final entry in _categories.entries) {
       if (entry.key.toLowerCase() == lowerCategory) {
@@ -113,11 +134,25 @@ class CategoryService {
       }
     }
 
-    // Try keyword matching for OCR-detected categories
+    // Try keyword matching in predefined categories
     for (final entry in _categories.entries) {
       for (final keyword in entry.value.keywords) {
         if (lowerCategory.contains(keyword.toLowerCase())) {
           return entry.value;
+        }
+      }
+    }
+
+    // Try keyword matching in custom categories
+    for (final customCat in customCategories) {
+      for (final keyword in customCat.keywords) {
+        if (lowerCategory.contains(keyword.toLowerCase())) {
+          return CategoryInfo(
+            color: customCat.color,
+            icon: Icons.label,
+            keywords: customCat.keywords,
+            emoji: customCat.emoji,
+          );
         }
       }
     }
@@ -133,6 +168,19 @@ class CategoryService {
   /// Get icon for a category
   static IconData getCategoryIcon(String category) {
     return getCategoryInfo(category)?.icon ?? Icons.label;
+  }
+
+  /// Get emoji for a category (returns null for predefined categories)
+  static String? getCategoryEmoji(String category) {
+    return getCategoryInfo(category)?.emoji;
+  }
+
+  /// Check if category is custom
+  static bool isCustomCategory(String category) {
+    final customCategories = LocalStorageService.getAllCustomCategories();
+    return customCategories.any((cat) => 
+      cat.name.toLowerCase() == category.toLowerCase()
+    );
   }
 
   /// Normalize category name to standard format
@@ -168,60 +216,89 @@ class CategoryService {
     return category;
   }
 
-  /// Get categories for manual expense form
-  static List<String> get manualExpenseCategories => [
-    'Food & Dining',
-    'Groceries',
-    'Transportation',
-    'Shopping',
-    'Entertainment',
-    'Healthcare',
-    'Utilities',
-    'Home & Garden',
-    'Education',
-    'Travel',
-    'Other',
-  ];
+  /// Get categories for manual expense form (predefined + custom)
+  static List<String> get manualExpenseCategories {
+    final predefined = [
+      'Food & Dining',
+      'Groceries',
+      'Transportation',
+      'Shopping',
+      'Entertainment',
+      'Healthcare',
+      'Utilities',
+      'Home & Garden',
+      'Education',
+      'Travel',
+      'Other',
+    ];
+    
+    // Add custom categories that are available for manual expenses
+    final custom = LocalStorageService.getCustomCategoriesByType('expense')
+        .map((cat) => cat.name)
+        .toList();
+    
+    return [...predefined, ...custom];
+  }
 
-  /// Get categories for post-capture (scanned receipts)
-  static List<String> get postCaptureCategories => [
-    'Services',
-    'Groceries',
-    'Food & Dining',
-    'Transportation',
-    'Healthcare',
-    'Home & Garden',
-    'Shopping',
-    'Entertainment',
-    'Utilities',
-    'Insurance',
-    'Education',
-    'Travel',
-    'Personal Care',
-    'Other',
-  ];
+  /// Get categories for post-capture (scanned receipts) (predefined + custom)
+  static List<String> get postCaptureCategories {
+    final predefined = [
+      'Services',
+      'Groceries',
+      'Food & Dining',
+      'Transportation',
+      'Healthcare',
+      'Home & Garden',
+      'Shopping',
+      'Entertainment',
+      'Utilities',
+      'Insurance',
+      'Education',
+      'Travel',
+      'Personal Care',
+      'Other',
+    ];
+    
+    // Add custom categories that are available for receipts
+    final custom = LocalStorageService.getCustomCategoriesByType('receipt')
+        .map((cat) => cat.name)
+        .toList();
+    
+    return [...predefined, ...custom];
+  }
 
-  /// Get categories for subscription form
-  static List<String> get subscriptionCategories => [
-    'Entertainment',
-    'Software',
-    'Utilities',
-    'Services',
-    'Telecom',
-    'Cloud/Storage',
-    'Productivity',
-    'Other',
-  ];
+  /// Get categories for subscription form (predefined + custom)
+  static List<String> get subscriptionCategories {
+    final predefined = [
+      'Entertainment',
+      'Software',
+      'Utilities',
+      'Services',
+      'Telecom',
+      'Cloud/Storage',
+      'Productivity',
+      'Other',
+    ];
+    
+    // Add custom categories that are available for subscriptions
+    final custom = LocalStorageService.getCustomCategoriesByType('subscription')
+        .map((cat) => cat.name)
+        .toList();
+    
+    return [...predefined, ...custom];
+  }
 }
 
 class CategoryInfo {
   final Color color;
   final IconData icon;
   final List<String> keywords;
+  final String? emoji; // Optional emoji for custom categories
 
   const CategoryInfo({
     required this.color,
     required this.icon,
     required this.keywords,
+    this.emoji,
   });
 }

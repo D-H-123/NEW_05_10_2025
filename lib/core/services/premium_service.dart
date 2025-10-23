@@ -12,6 +12,9 @@ class PremiumService {
   static final InAppPurchase _inAppPurchase = InAppPurchase.instance;
   static StreamSubscription<List<PurchaseDetails>>? _subscription;
   
+  // ⚠️ DEBUG MODE - Set to true for testing premium features
+  static const bool _debugPremiumEnabled = true; // ← Change to false for production
+  
   // Subscription state
   static SubscriptionTier _currentTier = SubscriptionTier.free;
   static bool _isTrialActive = false;
@@ -195,7 +198,7 @@ class PremiumService {
   
   // Getters
   static SubscriptionTier get currentTier => _currentTier;
-  static bool get isPremium => _currentTier != SubscriptionTier.free;
+  static bool get isPremium => _debugPremiumEnabled || _currentTier != SubscriptionTier.free;
   static bool get isTrialActive => _isTrialActive;
   static int get scanCount => _scanCount;
   static int get remainingFreeScans => _maxFreeScans - _scanCount;

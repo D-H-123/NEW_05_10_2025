@@ -91,7 +91,7 @@ class _UnifiedCategoryDropdownState extends State<UnifiedCategoryDropdown>
         width: widget.width,
         padding: widget.padding ?? const EdgeInsets.symmetric(
           horizontal: 16,
-          vertical: 12,
+          vertical: 10,
         ),
         decoration: BoxDecoration(
           border: Border.all(
@@ -140,7 +140,7 @@ class _UnifiedCategoryDropdownState extends State<UnifiedCategoryDropdown>
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                   ],
                   Text(
                     selectedCategory ?? widget.hint ?? 'Select category',
@@ -283,15 +283,23 @@ class _UnifiedCategoryDropdownState extends State<UnifiedCategoryDropdown>
         _buildDropdownButton(),
         if (_isOpen) _buildDropdownMenu(),
         if (widget.validator != null && widget.isRequired)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              widget.validator!(widget.selectedCategory) ?? '',
-              style: TextStyle(
-                color: Colors.red.shade600,
-                fontSize: 12,
-              ),
-            ),
+          Builder(
+            builder: (context) {
+              final error = widget.validator!(widget.selectedCategory);
+              if (error != null && error.isNotEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 12),
+                  child: Text(
+                    error,
+                    style: TextStyle(
+                      color: Colors.red.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            },
           ),
       ],
     );
@@ -310,6 +318,7 @@ class UnifiedCategoryFormField extends StatelessWidget {
   final double? width;
   final bool showIcons;
   final bool showColors;
+  final EdgeInsetsGeometry? padding;
 
   const UnifiedCategoryFormField({
     super.key,
@@ -323,6 +332,7 @@ class UnifiedCategoryFormField extends StatelessWidget {
     this.width,
     this.showIcons = true,
     this.showColors = true,
+    this.padding,
   });
 
   @override
@@ -338,6 +348,7 @@ class UnifiedCategoryFormField extends StatelessWidget {
       width: width,
       showIcons: showIcons,
       showColors: showColors,
+      padding: padding,
     );
   }
 }

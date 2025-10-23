@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:smart_receipt/core/services/local_storage_service.dart';
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -43,20 +44,28 @@ class _OnboardingPageState extends State<OnboardingPage> {
     });
   }
 
-  void _nextPage() {
+  void _nextPage() async {
     if (_currentPage < _pages.length - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );
     } else {
-      // Navigate to sign up page
-      context.go('/auth');
+      // Mark onboarding as completed
+      await LocalStorageService.setBoolSetting(
+        LocalStorageService.kHasCompletedOnboarding, 
+        true,
+      );
+      
+      // Note: We don't set kHasCompletedCurrencySetup here
+      // This allows the currency dialog to appear once when user first reaches home page
+      // After they select/skip, it will be set and never show again
+      
+      // Navigate to auth page
+      if (mounted) {
+        context.go('/auth');
+      }
     }
-  }
-
-  void _skip() {
-    context.go('/auth');
   }
 
   @override
@@ -66,21 +75,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Skip button
-            Align(
-              alignment: Alignment.topRight,
-              child: TextButton(
-                onPressed: _skip,
-                child: const Text(
-                  'Skip',
-                  style: TextStyle(
-                    color: Color(0xFF16213e),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
+            const SizedBox(height: 16),
             
             // Page content
             Expanded(

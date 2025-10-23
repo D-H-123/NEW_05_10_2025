@@ -10,6 +10,7 @@ class BrandIconWidget extends StatelessWidget {
   final Color? iconColor;
   final double borderRadius;
   final bool showContainer;
+  final bool forceLetterFallback;
 
   const BrandIconWidget({
     super.key,
@@ -20,6 +21,7 @@ class BrandIconWidget extends StatelessWidget {
     this.iconColor,
     this.borderRadius = 8.0,
     this.showContainer = true,
+    this.forceLetterFallback = false,
   });
 
   @override
@@ -30,6 +32,7 @@ class BrandIconWidget extends StatelessWidget {
         category: category,
         size: size,
         color: iconColor,
+        forceLetterFallback: forceLetterFallback,
       );
     }
 
@@ -40,6 +43,7 @@ class BrandIconWidget extends StatelessWidget {
       backgroundColor: backgroundColor,
       iconColor: iconColor,
       borderRadius: borderRadius,
+      forceLetterFallback: forceLetterFallback,
     );
   }
 }
@@ -50,6 +54,7 @@ class ReceiptBrandIcon extends StatelessWidget {
   final String? category;
   final double size;
   final bool isSubscription;
+  final bool forceLetterFallback;
 
   const ReceiptBrandIcon({
     super.key,
@@ -57,6 +62,7 @@ class ReceiptBrandIcon extends StatelessWidget {
     this.category,
     this.size = 60.0,
     this.isSubscription = false,
+    this.forceLetterFallback = false,
   });
 
   @override
@@ -79,6 +85,7 @@ class ReceiptBrandIcon extends StatelessWidget {
         category: category,
         size: size,
         borderRadius: 8,
+        forceLetterFallback: forceLetterFallback,
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/services/category_service.dart';
+import '../../core/services/local_storage_service.dart';
 import '../../core/widgets/unified_category_dropdown.dart';
 
 enum FormType {
@@ -48,6 +49,9 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
   bool _isEndDateEnabled = false;
+  
+  // Settings state
+  bool _isNotesEnabled = false;
 
   // Predefined options - using centralized service
   List<String> get _categories => CategoryService.manualExpenseCategories;
@@ -65,7 +69,12 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   @override
   void initState() {
     super.initState();
+    _loadSettings();
     _initializeForm();
+  }
+  
+  void _loadSettings() {
+    _isNotesEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kNotes);
   }
 
   void _initializeForm() {
@@ -242,9 +251,15 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
             if (value == null || value.trim().isEmpty) {
               return 'Please enter a title';
             }
+            // Check if title contains at least one letter
+            if (!RegExp(r'[a-zA-Z]').hasMatch(value)) {
+              return 'Title must contain at least one letter';
+            }
             return null;
           },
         ),
+        const SizedBox(height: 16),
+        _buildAmountField(),
         const SizedBox(height: 16),
         _buildDateField(
           controller: _dateController,
@@ -258,8 +273,6 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
           },
           allowFutureDates: false, // Manual expenses should not allow future dates
         ),
-        const SizedBox(height: 16),
-        _buildAmountField(),
         const SizedBox(height: 16),
         _buildCategoryDropdown(),
         const SizedBox(height: 16),
@@ -278,6 +291,10 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
               return 'Please enter a title';
+            }
+            // Check if title contains at least one letter
+            if (!RegExp(r'[a-zA-Z]').hasMatch(value)) {
+              return 'Title must contain at least one letter';
             }
             return null;
           },
@@ -455,19 +472,11 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   }
 
   Widget _buildFrequencyDropdown() {
-    return DropdownButtonFormField<String>(
+    return _InlineSimpleDropdown(
       value: _selectedFrequency,
-      decoration: const InputDecoration(
-        labelText: 'Frequency',
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.repeat),
-      ),
-      items: _frequencies.map((frequency) {
-        return DropdownMenuItem(
-          value: frequency,
-          child: Text(frequency),
-        );
-      }).toList(),
+      items: _frequencies,
+      label: 'Frequency',
+      icon: Icons.repeat,
       onChanged: (value) {
         setState(() {
           _selectedFrequency = value;
@@ -527,6 +536,10 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
   }
 
   Widget _buildNotesField() {
+    if (!_isNotesEnabled) {
+      return const SizedBox.shrink();
+    }
+    
     return TextFormField(
       controller: _notesController,
       decoration: const InputDecoration(
@@ -548,7 +561,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     final formData = <String, dynamic>{
       'formType': widget.formType.toString(),
       'amount': double.parse(_amountController.text),
-      'notes': _notesController.text.trim(),
+      'notes': _isNotesEnabled ? _notesController.text.trim() : '',
       'title': _titleController.text.trim(),
     };
 
@@ -577,102 +590,391 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
+    final mediaQuery = MediaQuery.of(context);
+    
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: mediaQuery.size.height * 0.85,
+          maxWidth: 600,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 10,
-            offset: Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  _getFormTitle(),
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _getFormTitle(),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  tooltip: 'Close',
-                ),
-              ],
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
             
             // Form
-            Expanded(
+            Flexible(
               child: Form(
                 key: _formKey,
+                autovalidateMode: AutovalidateMode.disabled,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.all(20),
                   child: _buildFormFields(),
                 ),
               ),
             ),
             
-            const SizedBox(height: 24),
-            
             // Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                       ),
                     ),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _handleSubmit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _handleSubmit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Submit',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                       ),
                     ),
-                    child: const Text(
-                      'Submit',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+  
+  /// Shows the modal as a dialog (faster, recommended)
+  static Future<void> showAsDialog(
+    BuildContext context, {
+    required FormType formType,
+    required String selectedCurrency,
+    required Function(Map<String, dynamic>) onSubmit,
+    dynamic existingBill,
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => DynamicExpenseModal(
+        formType: formType,
+        selectedCurrency: selectedCurrency,
+        onSubmit: onSubmit,
+        existingBill: existingBill,
+      ),
+    );
+  }
+  
+  /// Shows the modal as a bottom sheet (legacy support)
+  static Future<void> showAsBottomSheet(
+    BuildContext context, {
+    required FormType formType,
+    required String selectedCurrency,
+    required Function(Map<String, dynamic>) onSubmit,
+    dynamic existingBill,
+  }) {
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      isDismissible: true,
+      enableDrag: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        child: DynamicExpenseModal(
+          formType: formType,
+          selectedCurrency: selectedCurrency,
+          onSubmit: onSubmit,
+          existingBill: existingBill,
+        ),
+      ),
+    );
+  }
+}
+
+/// Custom inline dropdown that stays within dialog boundaries
+class _InlineSimpleDropdown extends StatefulWidget {
+  final String? value;
+  final List<String> items;
+  final String label;
+  final IconData icon;
+  final ValueChanged<String?> onChanged;
+  final String? Function(String?)? validator;
+
+  const _InlineSimpleDropdown({
+    required this.value,
+    required this.items,
+    required this.label,
+    required this.icon,
+    required this.onChanged,
+    this.validator,
+  });
+
+  @override
+  State<_InlineSimpleDropdown> createState() => _InlineSimpleDropdownState();
+}
+
+class _InlineSimpleDropdownState extends State<_InlineSimpleDropdown> {
+  bool _isOpen = false;
+
+  void _toggleDropdown() {
+    setState(() {
+      _isOpen = !_isOpen;
+    });
+  }
+
+  void _selectItem(String item) {
+    widget.onChanged(item);
+    _toggleDropdown();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Dropdown Button
+        InkWell(
+          onTap: _toggleDropdown,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _isOpen ? Colors.blue.shade400 : Colors.grey.shade300,
+                width: _isOpen ? 2 : 1,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.white,
+              boxShadow: _isOpen
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  widget.icon,
+                  color: Colors.grey.shade600,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.value ?? 'Select ${widget.label.toLowerCase()}',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: widget.value != null
+                              ? Colors.grey.shade800
+                              : Colors.grey.shade500,
+                          fontWeight: widget.value != null
+                              ? FontWeight.w500
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                AnimatedRotation(
+                  turns: _isOpen ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Icon(
+                    Icons.keyboard_arrow_down,
+                    color: Colors.grey.shade600,
+                    size: 24,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Dropdown Menu (inline)
+        if (_isOpen)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            constraints: const BoxConstraints(maxHeight: 200),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: widget.items.length,
+              itemBuilder: (context, index) {
+                final item = widget.items[index];
+                final isSelected = widget.value == item;
+
+                return InkWell(
+                  onTap: () => _selectItem(item),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? Colors.blue.shade50
+                          : Colors.transparent,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: isSelected
+                                  ? Colors.blue.shade700
+                                  : Colors.grey.shade800,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(
+                            Icons.check,
+                            color: Colors.blue.shade700,
+                            size: 20,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+        // Validation Error
+        if (widget.validator != null)
+          Builder(
+            builder: (context) {
+              final error = widget.validator!(widget.value);
+              if (error != null && error.isNotEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 12),
+                  child: Text(
+                    error,
+                    style: TextStyle(
+                      color: Colors.red.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+      ],
     );
   }
 }

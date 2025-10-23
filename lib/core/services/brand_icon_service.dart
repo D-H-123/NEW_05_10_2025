@@ -167,8 +167,14 @@ class BrandIconService {
     String? category,
     double size = 24.0,
     Color? color,
+    bool forceLetterFallback = false,
   }) {
     final normalizedName = _normalizeName(name);
+    
+    // If forceLetterFallback is true, skip brand/category matching
+    if (forceLetterFallback) {
+      return _buildLetterFallback(name, size, color);
+    }
     
     // First, try to find exact match
     IconData? iconData = _brandIcons[normalizedName];
@@ -204,6 +210,7 @@ class BrandIconService {
     Color? backgroundColor,
     Color? iconColor,
     double borderRadius = 8.0,
+    bool forceLetterFallback = false,
   }) {
     final normalizedName = _normalizeName(name);
     final bgColor = backgroundColor ?? _getBrandColor(normalizedName);
@@ -229,6 +236,7 @@ class BrandIconService {
           category: category,
           size: size * 0.6,
           color: icColor,
+          forceLetterFallback: forceLetterFallback,
         ),
       ),
     );

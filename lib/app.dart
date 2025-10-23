@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'features/auth/pages/onboarding_page.dart';
 import 'features/auth/pages/splash_screen.dart';
-//import 'features/auth/pages/auth_page.dart';
-import 'features/home/home_page.dart';
-import 'package:easy_localization/easy_localization.dart';
-import 'features/auth/pages/sign_up_page.dart';
 import 'features/auth/pages/auth_login_page.dart';
+import 'features/home/home_page.dart';
 import 'package:smart_receipt/features/camera/camera_page.dart';
 import 'features/storage/bill/bill_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/settings/custom_categories_page.dart';
 import 'features/camera/post_capture_page.dart';
 import 'features/analysis/analysis.dart';
 import 'core/theme/app_theme.dart';
@@ -23,12 +22,8 @@ final _router = GoRouter(routes: [
   GoRoute(path: '/onboarding', name: 'onboarding', builder: (context, state) => const OnboardingPage()),
   GoRoute(path: '/auth', name: 'auth', builder: (context, state) => const AuthLoginPage()),
   GoRoute(path: '/sign', name: 'sign', builder: (context, state) => const AuthLoginPage()),
+  GoRoute(path: '/sign-up', name: 'sign_up', builder: (context, state) => const AuthLoginPage()),
   GoRoute(path: '/home', name: 'home', builder: (context, state) => const HomePage(growthPercentage: 12, achievementsCount: 10,)),
-  GoRoute(
-  path: '/sign-up',
-  name: 'sign_up',
-  builder: (context, state) => const SignupPage(),
-),
 GoRoute(
   path: '/scan',
   name: 'scan',
@@ -49,6 +44,10 @@ GoRoute(
 GoRoute(
   path: '/settings',
   builder: (context, state) => const SettingsPage(),
+),
+GoRoute(
+  path: '/settings/custom-categories',
+  builder: (context, state) => const CustomCategoriesPage(),
 ),
 GoRoute(path: '/post-capture', builder: (context, state) {
   final args = state.extra;

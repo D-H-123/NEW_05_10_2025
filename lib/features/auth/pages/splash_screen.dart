@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
+import 'package:smart_receipt/core/services/local_storage_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -41,12 +43,36 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     
     _animationController.forward();
     
-    // Navigate to onboarding after 2.5 seconds
-    Timer(const Duration(milliseconds: 2500), () {
+    // Navigate after 1.5 seconds - check onboarding status and auth
+    Timer(const Duration(milliseconds: 1500), () async {
       if (mounted) {
-        context.go('/onboarding');
+        await _navigateToNextScreen();
       }
     });
+  }
+
+  Future<void> _navigateToNextScreen() async {
+    // Check if user is already logged in
+    final user = FirebaseAuth.instance.currentUser;
+    
+    // Check if onboarding has been completed
+    final hasCompletedOnboarding = LocalStorageService.getBoolSetting(
+      LocalStorageService.kHasCompletedOnboarding,
+      defaultValue: false,
+    );
+    
+    if (!mounted) return;
+    
+    if (user != null) {
+      // User is logged in - go directly to home
+      context.go('/home');
+    } else if (hasCompletedOnboarding) {
+      // Onboarding completed but not logged in - go to auth
+      context.go('/auth');
+    } else {
+      // First time user - show onboarding
+      context.go('/onboarding');
+    }
   }
 
   @override

@@ -195,14 +195,23 @@ class _AuthLoginPageState extends State<AuthLoginPage> with SingleTickerProvider
             // Skip button - top right
             Align(
               alignment: Alignment.topRight,
-              child: TextButton(
-                onPressed: _handleSkip,
-                child: const Text(
-                  'Skip',
-                  style: TextStyle(
-                    color: Color(0xFF16213e),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8, top: 8),
+                child: TextButton(
+                  onPressed: _handleSkip,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    splashFactory: NoSplash.splashFactory, // Remove splash delay
+                  ),
+                  child: const Text(
+                    'Skip',
+                    style: TextStyle(
+                      color: Color(0xFF16213e),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),

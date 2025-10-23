@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
+import 'package:smart_receipt/core/services/budget_notification_service.dart';
 import '../auth/providers/auth_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/currency_service.dart';
@@ -11,6 +12,7 @@ import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/widgets/simplified_subscription_reminder_settings.dart';
+import '../collaboration/budget_collaboration_page.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -20,18 +22,18 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  late bool _location;
   late bool _calendarResults;
   late bool _notes;
   String? _selectedCurrencyCode;
+  double? _monthlyBudget;
 
   @override
   void initState() {
     super.initState();
-    _location = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
     _calendarResults = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
     _notes = LocalStorageService.getBoolSetting(LocalStorageService.kNotes);
     _selectedCurrencyCode = LocalStorageService.getStringSetting(LocalStorageService.kCurrencyCode);
+    _monthlyBudget = LocalStorageService.getDoubleSetting(LocalStorageService.kMonthlyBudget);
   }
 
   @override
@@ -74,16 +76,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           child: ResponsiveColumn(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const ResponsiveSpacer(height: 24),
+              const ResponsiveSpacer(height: 16),
               
               // Profile Section - Rectangular and Clickable
               _buildProfileSection(),
               
-              const ResponsiveSpacer(height: 32),
-              
-              // Priority 1: Essential Settings
-              _buildSectionHeader('Essential Settings', Icons.settings, Colors.blue),
-              const ResponsiveSpacer(height: 16),
+              const ResponsiveSpacer(height: 8),
               
               // Currency - Most Important
               _buildModernSettingCard(
@@ -145,51 +143,126 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 },
               ),
               
+              const ResponsiveSpacer(height: 8),
               
-              const ResponsiveSpacer(height: 32),
-              
-              // Priority 2: Premium Features
-              _buildSectionHeader('Premium Features', Icons.star, Colors.amber),
-              const ResponsiveSpacer(height: 16),
-              
-              // Location Services
+              // Monthly Budget
               _buildModernSettingCard(
                 context,
-                icon: Icons.location_on,
-                iconColor: Colors.orange,
-                title: 'Location Services',
-                subtitle: 'Track receipt locations automatically',
-                isPremium: true,
-                trailing: Switch(
-                  value: _location,
-                  onChanged: (v) async {
-                    setState(() => _location = v);
-                    await LocalStorageService.setBoolSetting(LocalStorageService.kLocation, v);
-                  },
-                  activeColor: Colors.orange,
+                icon: Icons.account_balance_wallet,
+                iconColor: Colors.blue,
+                title: 'Monthly Budget',
+                subtitle: 'Set your monthly spending goal',
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _monthlyBudget != null 
+                        ? Colors.blue.withOpacity(0.1)
+                        : Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _monthlyBudget != null 
+                          ? Colors.blue.withOpacity(0.3)
+                          : Colors.orange.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Text(
+                    _monthlyBudget != null 
+                        ? '${ref.read(currencyProvider.notifier).symbolFor(_selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode)}${_monthlyBudget!.toStringAsFixed(0)}'
+                        : 'Not Set',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _monthlyBudget != null ? Colors.blue : Colors.orange[700],
+                    ),
+                  ),
                 ),
-                onTap: () async {
-                  setState(() => _location = !_location);
-                  await LocalStorageService.setBoolSetting(LocalStorageService.kLocation, _location);
+                onTap: () => _showBudgetDialog(),
+              ),
+              
+              const ResponsiveSpacer(height: 8),
+              
+              // Budget Collaboration (Family Budgets) - Premium Feature
+              _buildModernSettingCard(
+                context,
+                icon: Icons.people,
+                iconColor: Colors.teal,
+                title: 'Family Budgets',
+                subtitle: 'Share budgets with family members',
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.orange,
+                          width: 1,
+                        ),
+                      ),
+                      child: const Text(
+                        'PREMIUM',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.grey,
+                      size: 16,
+                    ),
+                  ],
+                ),
+                onTap: () {
+                  print('🎯 Family Budgets tapped! Navigating...');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BudgetCollaborationPage(),
+                    ),
+                  );
                 },
               ),
               
-              const ResponsiveSpacer(height: 12),
+              const ResponsiveSpacer(height: 8),
+              
+              // Custom Categories
+              _buildModernSettingCard(
+                context,
+                icon: Icons.category,
+                iconColor: Colors.purple,
+                title: 'Custom Categories',
+                subtitle: 'Create and manage your own expense categories',
+                isPremium: true,
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  context.push('/settings/custom-categories');
+                },
+              ),
+              
+              const ResponsiveSpacer(height: 8),
               
               // Calendar Integration
               _buildModernSettingCard(
                 context,
                 icon: Icons.calendar_today,
-                iconColor: Colors.purple,
+                iconColor: Colors.blueGrey,
                 title: 'Calendar Integration',
                 subtitle: 'Show receipts in calendar view',
+                isPremium: true,
                 trailing: Switch(
                   value: _calendarResults,
                   onChanged: (v) async {
                     setState(() => _calendarResults = v);
                     await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, v);
                   },
-                  activeColor: Colors.purple,
+                  activeColor: Colors.blueGrey,
                 ),
                 onTap: () async {
                   setState(() => _calendarResults = !_calendarResults);
@@ -197,7 +270,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 },
               ),
               
-              const ResponsiveSpacer(height: 12),
+              const ResponsiveSpacer(height: 8),
+              
+              // Unified Notifications
+              _buildModernSettingCard(
+                context,
+                icon: Icons.notifications,
+                iconColor: Colors.orange,
+                title: 'Notifications',
+                subtitle: 'Budget alerts, reminders & more',
+                trailing: const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey,
+                  size: 16,
+                ),
+                onTap: () => _showUnifiedNotificationSettings(context),
+              ),
+              
+              const ResponsiveSpacer(height: 8),
               
               // Notes Support
               _buildModernSettingCard(
@@ -220,42 +310,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 },
               ),
               
-              const ResponsiveSpacer(height: 32),
-              
-              // Priority 3: Subscription Management
-              _buildSectionHeader('Subscription Management', Icons.account_balance_wallet, Colors.indigo),
-              const ResponsiveSpacer(height: 16),
-              
-              // Subscription Reminders
-              _buildModernSettingCard(
-                context,
-                icon: Icons.notifications_active,
-                iconColor: Colors.blue,
-                title: 'Subscription Reminders',
-                subtitle: 'Manage your subscription reminder notifications',
-                isNew: true,
-                trailing: const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.grey,
-                  size: 16,
-                ),
-                onTap: () => _navigateToSubscriptionReminders(context),
-              ),
-              
-              const ResponsiveSpacer(height: 32),
+              const ResponsiveSpacer(height: 8),
               
               // Testing Section (only show in debug mode)
               if (const bool.fromEnvironment('dart.vm.product') == false) ...[
-                ResponsiveText(
-                  'Testing Tools',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                
-                const ResponsiveSpacer(height: 16),
-                
                 // Premium Testing
                 ResponsiveCard(
                   child: _buildTestingTile(
@@ -289,12 +347,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                 ),
                 
-                const ResponsiveSpacer(height: 32),
+                const ResponsiveSpacer(height: 8),
               ],
-              
-              // Priority 4: Additional Options
-              _buildSectionHeader('Additional Options', Icons.more_horiz, Colors.grey),
-              const ResponsiveSpacer(height: 16),
               
               // Export Data
               _buildModernSettingCard(
@@ -311,7 +365,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 onTap: () => _showExportDialog(context),
               ),
               
-              const ResponsiveSpacer(height: 12),
+              const ResponsiveSpacer(height: 8),
               
               // Privacy Policy
               _buildModernSettingCard(
@@ -328,7 +382,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 onTap: () => _showPrivacyPolicy(context),
               ),
               
-              const ResponsiveSpacer(height: 12),
+              const ResponsiveSpacer(height: 8),
               
               // About
               _buildModernSettingCard(
@@ -345,7 +399,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 onTap: () => _showAboutDialog(context),
               ),
               
-              const ResponsiveSpacer(height: 80), // Space for bottom navigation
+              const ResponsiveSpacer(height: 40), // Space for bottom navigation
             ],
           ),
         ),
@@ -648,36 +702,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-
-  // Modern Section Header
-  Widget _buildSectionHeader(String title, IconData icon, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 18,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          title,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-      ],
-    );
-  }
-
   // Modern Setting Card
   Widget _buildModernSettingCard(
     BuildContext context, {
@@ -703,117 +727,119 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                // Icon
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: iconColor,
-                    size: 24,
-                  ),
-                ),
-                
-                const SizedBox(width: 16),
-                
-                // Content
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ),
-                          if (isPremium) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.amber.withOpacity(0.3)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.star,
-                                    color: Colors.amber[700],
-                                    size: 12,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Premium',
-                                    style: TextStyle(
-                                      color: Colors.amber[700],
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          if (isNew) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'NEW',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    // Icon
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: iconColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
+                      child: Icon(
+                        icon,
+                        color: iconColor,
+                        size: 22,
                       ),
-                    ],
-                  ),
+                    ),
+                    
+                    const SizedBox(width: 16),
+                    
+                     // Content
+                     Expanded(
+                       child: Column(
+                         crossAxisAlignment: CrossAxisAlignment.start,
+                         children: [
+                           Row(
+                             children: [
+                               Expanded(
+                                 child: Text(
+                                   title,
+                                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                     fontWeight: FontWeight.w600,
+                                     color: Colors.black87,
+                                   ),
+                                 ),
+                               ),
+                               if (isNew) ...[
+                                 const SizedBox(width: 6),
+                                 Container(
+                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                   decoration: BoxDecoration(
+                                     color: Colors.red,
+                                     borderRadius: BorderRadius.circular(8),
+                                   ),
+                                   child: const Text(
+                                     'NEW',
+                                     style: TextStyle(
+                                       color: Colors.white,
+                                       fontSize: 9,
+                                       fontWeight: FontWeight.bold,
+                                     ),
+                                   ),
+                                 ),
+                               ],
+                             ],
+                           ),
+                           const SizedBox(height: 4),
+                           Text(
+                             subtitle,
+                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                               color: Colors.grey[600],
+                             ),
+                           ),
+                         ],
+                       ),
+                     ),
+                    
+                    const SizedBox(width: 16),
+                    
+                    // Trailing
+                    trailing,
+                  ],
                 ),
-                
-                const SizedBox(width: 16),
-                
-                // Trailing
-                trailing,
-              ],
+              ),
             ),
           ),
-        ),
+          
+          // Premium badge at top-right corner (half overflow)
+          if (isPremium)
+            Positioned(
+              top: -12,
+              right: -3,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.amber[600],
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 2,
+                  ),
+                  
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.diamond,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1249,6 +1275,598 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ),
     );
   }
+
+  void _showBudgetDialog() {
+    double currentValue = _monthlyBudget ?? 500;
+    if (currentValue < 100) currentValue = 100;
+    if (currentValue > 99999) currentValue = 99999;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void setPresetBudget(double amount) {
+            setDialogState(() {
+              currentValue = amount;
+            });
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: AppTheme.largeBorderRadius,
+            ),
+            title: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.account_balance_wallet,
+                    color: Colors.blue,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Monthly Budget',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Set your monthly spending goal to track your expenses.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  
+                  // Budget Display with Slider
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.blue.withOpacity(0.3), width: 2),
+                      borderRadius: AppTheme.mediumBorderRadius,
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              ref.read(currencyProvider.notifier).symbolFor(
+                                _selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              currentValue.toStringAsFixed(0),
+                              style: const TextStyle(
+                                fontSize: 48,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: Colors.blue,
+                            inactiveTrackColor: Colors.grey[300],
+                            thumbColor: Colors.blue,
+                            overlayColor: Colors.blue.withOpacity(0.2),
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
+                            trackHeight: 4,
+                          ),
+                          child: Slider(
+                            value: currentValue,
+                            min: 100,
+                            max: 99999,
+                            divisions: 999,
+                            onChanged: (value) {
+                              setDialogState(() {
+                                currentValue = value;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Quick Presets Label
+                  const Text(
+                    'Quick Presets',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Preset Buttons
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildPresetButton('\$500', 500, setPresetBudget),
+                      _buildPresetButton('\$1K', 1000, setPresetBudget),
+                      _buildPresetButton('\$2K', 2000, setPresetBudget),
+                      _buildPresetButton('\$3K', 3000, setPresetBudget),
+                      _buildPresetButton('\$4K', 4000, setPresetBudget),
+                      _buildPresetButton('\$5K', 5000, setPresetBudget),
+                      _buildPresetButton('\$10K', 10000, setPresetBudget),
+                      _buildPresetButton('\$15K', 15000, setPresetBudget),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Info text
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.05),
+                      borderRadius: AppTheme.smallBorderRadius,
+                      border: Border.all(color: Colors.blue.withOpacity(0.1)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: Colors.blue[700],
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Min: \$100 • Max: \$99,999',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.blue),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      if (_monthlyBudget != null)
+                        TextButton(
+                          onPressed: () async {
+                            await LocalStorageService.setDoubleSetting(
+                              LocalStorageService.kMonthlyBudget,
+                              0,
+                            );
+                            setState(() {
+                              _monthlyBudget = null;
+                            });
+                            if (mounted) {
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Budget cleared'),
+                                  backgroundColor: Colors.orange,
+                                ),
+                              );
+                            }
+                          },
+                          child: const Text(
+                            'Clear',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () async {
+                          await LocalStorageService.setDoubleSetting(
+                            LocalStorageService.kMonthlyBudget,
+                            currentValue,
+                          );
+                          setState(() {
+                            _monthlyBudget = currentValue;
+                          });
+                          if (mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Monthly budget set to ${ref.read(currencyProvider.notifier).symbolFor(_selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode)}${currentValue.toStringAsFixed(0)}',
+                                ),
+                                backgroundColor: AppTheme.successColor,
+                              ),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF16213e),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Save',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPresetButton(String label, double value, Function(double) onPressed) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onPressed(value),
+        borderRadius: AppTheme.smallBorderRadius,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: AppTheme.smallBorderRadius,
+            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.blue,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showUnifiedNotificationSettings(BuildContext context) async {
+    // Request permissions first
+    final hasPermission = await BudgetNotificationService.requestPermissions();
+    
+    if (!hasPermission && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enable notifications in app settings'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Get current settings
+    final settings = await BudgetNotificationService.getNotificationSettings();
+    bool budgetWeeklyEnabled = settings['budget'] ?? true;
+    bool budgetThresholdEnabled = settings['threshold'] ?? true;
+    bool budgetDailyEnabled = settings['daily'] ?? false;
+    
+    // Get subscription reminder setting (if exists)
+    bool subscriptionEnabled = LocalStorageService.getBoolSetting('subscription_reminders_enabled', defaultValue: true);
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: AppTheme.largeBorderRadius,
+            ),
+            title: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.notifications,
+                    color: Colors.orange,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Notifications',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Manage all your app notifications:',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // BUDGET SECTION
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(
+                          Icons.account_balance_wallet,
+                          size: 16,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Budget Alerts',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Weekly Budget Summary
+                  SwitchListTile(
+                    value: budgetWeeklyEnabled,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        budgetWeeklyEnabled = value;
+                      });
+                    },
+                    title: const Text(
+                      'Weekly Summary',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: const Text('Get weekly updates on your budget', style: TextStyle(fontSize: 12)),
+                    activeColor: Colors.blue,
+                    contentPadding: const EdgeInsets.only(left: 0),
+                  ),
+                  
+                  // Threshold Alerts
+                  SwitchListTile(
+                    value: budgetThresholdEnabled,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        budgetThresholdEnabled = value;
+                      });
+                    },
+                    title: const Text(
+                      'Spending Alerts',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: const Text('Alert at 80% or 100% budget', style: TextStyle(fontSize: 12)),
+                    activeColor: Colors.blue,
+                    contentPadding: const EdgeInsets.only(left: 0),
+                  ),
+                  
+                  // Daily Reminders
+                  SwitchListTile(
+                    value: budgetDailyEnabled,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        budgetDailyEnabled = value;
+                      });
+                    },
+                    title: const Text(
+                      'Daily Tips',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: const Text('Daily spending tips', style: TextStyle(fontSize: 12)),
+                    activeColor: Colors.blue,
+                    contentPadding: const EdgeInsets.only(left: 0),
+                  ),
+                  
+                  const Divider(height: 32),
+                  
+                  // SUBSCRIPTION SECTION
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(
+                          Icons.repeat,
+                          size: 16,
+                          color: Colors.purple,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Subscription Reminders',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'PRO',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Subscription Reminders Toggle
+                  SwitchListTile(
+                    value: subscriptionEnabled,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        subscriptionEnabled = value;
+                      });
+                    },
+                    title: const Text(
+                      'Upcoming Renewals',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    subtitle: const Text('Remind before subscriptions renew', style: TextStyle(fontSize: 12)),
+                    activeColor: Colors.purple,
+                    contentPadding: const EdgeInsets.only(left: 0),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Advanced Settings Button
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _navigateToSubscriptionReminders(context);
+                    },
+                    icon: const Icon(Icons.settings, size: 16),
+                    label: const Text('Advanced Subscription Settings'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.purple,
+                      side: const BorderSide(color: Colors.purple),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Test Notification Button
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await BudgetNotificationService.sendDailyReminder(
+                        remaining: 1500,
+                        daysLeft: 15,
+                        currencySymbol: '\$',
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Test notification sent!'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.send, size: 16),
+                    label: const Text('Send Test Notification'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orange,
+                      side: const BorderSide(color: Colors.orange),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  // Save budget notifications
+                  await BudgetNotificationService.saveNotificationSettings(
+                    budget: budgetWeeklyEnabled,
+                    threshold: budgetThresholdEnabled,
+                    daily: budgetDailyEnabled,
+                  );
+                  
+                  // Save subscription reminders
+                  await LocalStorageService.setBoolSetting('subscription_reminders_enabled', subscriptionEnabled);
+                  
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Notification settings saved!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16213e),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
+
 
 

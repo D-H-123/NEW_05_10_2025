@@ -19,6 +19,7 @@ import '../../../core/services/personal_subscription_reminder_service.dart';
 import '../../../core/widgets/filter_dropdown.dart';
 import '../../../core/widgets/subscription_badge.dart';
 import '../../../core/widgets/brand_icon_widget.dart';
+import '../../../core/widgets/category_chip_selector.dart';
 import '../../home/dynamic_expense_modal.dart';
 import '../models/bill_model.dart';
 
@@ -746,6 +747,19 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     }
   }
 
+  /// Format date to show "Today", "Yesterday", or relative time
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'N/A';
+    
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return DateFormat('MMM dd, yyyy').format(date);
+  }
+
   /// Check if we should show brand icon instead of image
   bool _shouldShowBrandIcon(dynamic bill) {
     return bill.ocrText == 'Manual entry' || bill.ocrText == 'Subscription entry';
@@ -828,31 +842,6 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     ];
   }
 
-  List<FilterItem> _buildCategoryFilterItems(List<dynamic> filteredBills) {
-    final items = <FilterItem>[
-      FilterItem(
-        value: 'all',
-        label: 'All Categories',
-        icon: Icons.all_inclusive,
-        count: _getCategoryCount(filteredBills, 'all'),
-      ),
-    ];
-
-    // Add unique categories with their icons and colors
-    for (final category in _getUniqueCategories(filteredBills)) {
-      final categoryInfo = CategoryService.getCategoryInfo(category);
-      items.add(FilterItem(
-        value: category,
-        label: category,
-        icon: categoryInfo?.icon ?? Icons.label,
-        count: _getCategoryCount(filteredBills, category),
-        color: categoryInfo?.color,
-      ));
-    }
-
-    return items;
-  }
-
   List<FilterItem> _buildLocationFilterItems(List<dynamic> filteredBills) {
     final items = <FilterItem>[
       FilterItem(
@@ -878,22 +867,33 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
 
 
   // Responsive Filter Layout
-  Widget _buildResponsiveFilterLayout(BuildContext context, List<dynamic> filteredBills) {
+  Widget _buildResponsiveFilterLayout(BuildContext context, List<dynamic> allBills, List<dynamic> filteredBills) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final spacing = screenWidth < 360 ? 4.0 : 6.0; // Smaller spacing for very small screens
+    final spacing = screenWidth < 360 ? 8.0 : 12.0;
+    
+    // Get ALL available categories from all bills (not just filtered ones)
+    // This ensures all categories remain visible even after selecting some
+    final uniqueCategories = _getUniqueCategories(allBills);
+    
+    // But get counts from filtered bills for accurate counts
+    final categoryCounts = <String, int>{};
+    for (final category in uniqueCategories) {
+      categoryCounts[category] = _getCategoryCount(allBills, category);
+    }
     
     // Check if location filter is enabled
     if (_isLocationFilterEnabled) {
-      // Use 2x2 grid layout when location is enabled to prevent overflow
+      // Use column layout when location is enabled
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // First row: Source and Category
+          // First row: Source and Location dropdowns
           Row(
             children: [
               Expanded(
                 child: FilterDropdown(
                   selectedValue: _selectedSource,
-                  items: _buildSourceFilterItems(filteredBills),
+                  items: _buildSourceFilterItems(allBills),
                   onChanged: (value) {
                     setState(() {
                       _selectedSource = value ?? 'all';
@@ -908,105 +908,134 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               SizedBox(width: spacing),
               Expanded(
                 child: FilterDropdown(
-                  selectedValue: _selectedCategoryFilter,
-                  items: _buildCategoryFilterItems(filteredBills),
+                  selectedValue: _selectedLocation,
+                  items: _buildLocationFilterItems(allBills),
                   onChanged: (value) {
                     setState(() {
-                      _selectedCategoryFilter = value ?? 'all';
+                      _selectedLocation = value ?? 'all';
                     });
                   },
-                  label: 'Category',
-                  icon: Icons.category,
+                  label: 'Location',
+                  icon: Icons.location_on,
                   showIcons: true,
-                  showColors: true,
-                  isCategoryFilter: true, // This will remove icons and use category colors
-                  allowMultiSelect: true, // Enable multi-select
-                  selectedValues: _selectedCategories,
-                  onMultiChanged: (values) {
-                    setState(() {
-                      _selectedCategories = values ?? [];
-                      // Update single select for backward compatibility
-                      if (_selectedCategories.isEmpty) {
-                        _selectedCategoryFilter = 'all';
-                      } else if (_selectedCategories.length == 1) {
-                        _selectedCategoryFilter = _selectedCategories.first;
-                      } else {
-                        _selectedCategoryFilter = 'multiple';
-                      }
-                    });
-                  },
+                  showColors: false,
                 ),
               ),
             ],
           ),
           SizedBox(height: spacing),
-          // Second row: Location (full width)
-          FilterDropdown(
-            selectedValue: _selectedLocation,
-            items: _buildLocationFilterItems(filteredBills),
-            onChanged: (value) {
-              setState(() {
-                _selectedLocation = value ?? 'all';
-              });
-            },
-            label: 'Location',
-            icon: Icons.location_on,
-            showIcons: true,
-            showColors: false,
-          ),
+          // Category chips (compact horizontal scroll for small screens)
+          if (uniqueCategories.isNotEmpty)
+            screenWidth < 600
+                ? CategoryChipSelector(
+                    availableCategories: uniqueCategories,
+                    selectedCategories: _selectedCategories,
+                    onChanged: (values) {
+                      setState(() {
+                        _selectedCategories = values;
+                        // Update single select for backward compatibility
+                        if (_selectedCategories.isEmpty) {
+                          _selectedCategoryFilter = 'all';
+                        } else if (_selectedCategories.length == 1) {
+                          _selectedCategoryFilter = _selectedCategories.first;
+                        } else {
+                          _selectedCategoryFilter = 'multiple';
+                        }
+                      });
+                    },
+                    showCounts: true,
+                    categoryCounts: categoryCounts,
+                    isCompact: true,
+                    label: 'Filter by Category',
+                  )
+                : ExpandableCategoryChipSelector(
+                    availableCategories: uniqueCategories,
+                    selectedCategories: _selectedCategories,
+                    onChanged: (values) {
+                      setState(() {
+                        _selectedCategories = values;
+                        // Update single select for backward compatibility
+                        if (_selectedCategories.isEmpty) {
+                          _selectedCategoryFilter = 'all';
+                        } else if (_selectedCategories.length == 1) {
+                          _selectedCategoryFilter = _selectedCategories.first;
+                        } else {
+                          _selectedCategoryFilter = 'multiple';
+                        }
+                      });
+                    },
+                    showCounts: true,
+                    categoryCounts: categoryCounts,
+                    initialDisplayCount: 8,
+                    label: 'Filter by Category',
+                  ),
         ],
       );
     } else {
-      // Use single row layout when location is disabled
-      return Row(
+      // Use layout without location when location is disabled
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: FilterDropdown(
-              selectedValue: _selectedSource,
-              items: _buildSourceFilterItems(filteredBills),
-              onChanged: (value) {
-                setState(() {
-                  _selectedSource = value ?? 'all';
-                });
-              },
-              label: 'Source',
-              icon: Icons.source,
-              showIcons: true,
-              showColors: false,
-            ),
+          // Source dropdown
+          FilterDropdown(
+            selectedValue: _selectedSource,
+            items: _buildSourceFilterItems(allBills),
+            onChanged: (value) {
+              setState(() {
+                _selectedSource = value ?? 'all';
+              });
+            },
+            label: 'Source',
+            icon: Icons.source,
+            showIcons: true,
+            showColors: false,
           ),
-          SizedBox(width: spacing),
-          Expanded(
-            child: FilterDropdown(
-              selectedValue: _selectedCategoryFilter,
-              items: _buildCategoryFilterItems(filteredBills),
-              onChanged: (value) {
-                setState(() {
-                  _selectedCategoryFilter = value ?? 'all';
-                });
-              },
-              label: 'Category',
-              icon: Icons.category,
-              showIcons: true,
-              showColors: true,
-              isCategoryFilter: true, // This will remove icons and use category colors
-              allowMultiSelect: true, // Enable multi-select
-              selectedValues: _selectedCategories,
-              onMultiChanged: (values) {
-                setState(() {
-                  _selectedCategories = values ?? [];
-                  // Update single select for backward compatibility
-                  if (_selectedCategories.isEmpty) {
-                    _selectedCategoryFilter = 'all';
-                  } else if (_selectedCategories.length == 1) {
-                    _selectedCategoryFilter = _selectedCategories.first;
-                  } else {
-                    _selectedCategoryFilter = 'multiple';
-                  }
-                });
-              },
-            ),
-          ),
+          SizedBox(height: spacing),
+          // Category chips (compact horizontal scroll for small screens)
+          if (uniqueCategories.isNotEmpty)
+            screenWidth < 600
+                ? CategoryChipSelector(
+                    availableCategories: uniqueCategories,
+                    selectedCategories: _selectedCategories,
+                    onChanged: (values) {
+                      setState(() {
+                        _selectedCategories = values;
+                        // Update single select for backward compatibility
+                        if (_selectedCategories.isEmpty) {
+                          _selectedCategoryFilter = 'all';
+                        } else if (_selectedCategories.length == 1) {
+                          _selectedCategoryFilter = _selectedCategories.first;
+                        } else {
+                          _selectedCategoryFilter = 'multiple';
+                        }
+                      });
+                    },
+                    showCounts: true,
+                    categoryCounts: categoryCounts,
+                    isCompact: true,
+                    label: 'Filter by Category',
+                  )
+                : ExpandableCategoryChipSelector(
+                    availableCategories: uniqueCategories,
+                    selectedCategories: _selectedCategories,
+                    onChanged: (values) {
+                      setState(() {
+                        _selectedCategories = values;
+                        // Update single select for backward compatibility
+                        if (_selectedCategories.isEmpty) {
+                          _selectedCategoryFilter = 'all';
+                        } else if (_selectedCategories.length == 1) {
+                          _selectedCategoryFilter = _selectedCategories.first;
+                        } else {
+                          _selectedCategoryFilter = 'multiple';
+                        }
+                      });
+                    },
+                    showCounts: true,
+                    categoryCounts: categoryCounts,
+                    initialDisplayCount: 8,
+                    label: 'Filter by Category',
+                  ),
         ],
       );
     }
@@ -1503,7 +1532,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           // View Mode Content
           Expanded(
             child: _viewMode == 'list' 
-                ? _buildListView(filteredBills, groupedBills, sortedYears)
+                ? _buildListView(bills, filteredBills, groupedBills, sortedYears)
                 : _buildCalendarView(filteredBills),
           ),
         ],
@@ -1615,7 +1644,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
   }
 
   // Build List View (existing functionality)
-  Widget _buildListView(List<dynamic> filteredBills, Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills, List<String> sortedYears) {
+  Widget _buildListView(List<dynamic> allBills, List<dynamic> filteredBills, Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills, List<String> sortedYears) {
     return Column(
       children: [
           // Organized Filter Section - Only show in list view
@@ -1687,7 +1716,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                   const SizedBox(height: 12),
                   
                   // Responsive Filter Layout
-                  _buildResponsiveFilterLayout(context, filteredBills),
+                  _buildResponsiveFilterLayout(context, allBills, filteredBills),
                 ],
               ),
             ),
@@ -1833,7 +1862,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                             _showBillOptions(context, bill);
                                           },
                                           child: Container(
-                                            margin: const EdgeInsets.only(bottom: 8),
+                                            margin: const EdgeInsets.only(bottom: 12),
                                             child: SubscriptionCardDecoration(
                                               isSubscription: bill.subscriptionType != null,
                                               subscriptionType: bill.subscriptionType,
@@ -1841,7 +1870,6 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                 _updateSubscriptionFrequency(bill, newFrequency);
                                               },
                                               child: Container(
-                                              height: 100,
                                               decoration: BoxDecoration(
                                                 color: Colors.white,
                                                 borderRadius: BorderRadius.circular(12),
@@ -1860,12 +1888,12 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                   ),
                                                 ],
                                               ),
-                                            child: Row(
+                                            child: IntrinsicHeight(
+                                              child: Row(
                                               children: [
                                                 // Receipt Image or Brand Icon (LEFT SIDE)
                                                 Container(
                                                   width: 80,
-                                                  height: 100,
                                                   decoration: BoxDecoration(
                                                     borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
                                                     color: _shouldShowBrandIcon(bill) ? Colors.grey[100] : null,
@@ -1878,9 +1906,10 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                       ? Center(
                                                           child: ReceiptBrandIcon(
                                                             name: _getBrandDisplayName(bill),
-                                                            category: bill.categoryId,
+                                                            category: null,
                                                             size: 50,
                                                             isSubscription: bill.subscriptionType != null,
+                                                            forceLetterFallback: true, // Always show first letter for manual/subscription
                                                           ),
                                                         )
                                                       : null,
@@ -1912,7 +1941,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                               ),
                                                               // Date (small)
                                                               Text(
-                                                                DateFormat('MMM dd, yyyy').format(bill.date ?? DateTime.now()),
+                                                                _formatDate(bill.date),
                                                                 style: TextStyle(
                                                                   color: Colors.grey[600],
                                                                   fontSize: 12,
@@ -2029,6 +2058,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                   ),
                                                 ),
                                               ],
+                                            ),
                                             ),
                                           ),
                                         ),
@@ -2182,9 +2212,10 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                         ? Center(
                                             child: ReceiptBrandIcon(
                                               name: _getBrandDisplayName(bill),
-                                              category: bill.categoryId,
+                                              category: null,
                                               size: 40,
                                               isSubscription: bill.subscriptionType != null,
+                                              forceLetterFallback: true, // Always show first letter for manual/subscription
                                             ),
                                           )
                                         : null,

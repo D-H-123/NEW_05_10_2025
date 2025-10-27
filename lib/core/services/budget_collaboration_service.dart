@@ -180,17 +180,35 @@ class BudgetCollaborationService {
     });
   }
 
-  /// Add expense to shared budget
+  /// Add expense to shared budget (with optional split)
   static Future<bool> addExpense({
     required String budgetId,
     required double amount,
     required String category,
+    String? title,
     String? description,
     String? receiptUrl,
+    bool isSplit = false,
+    List<String>? splitWith,
   }) async {
     try {
       final user = _auth.currentUser;
       if (user == null) throw Exception('User not authenticated');
+
+      // Calculate split amounts if splitting
+      Map<String, double> splitAmounts = {};
+      Map<String, bool> settlementStatus = {};
+      List<String> finalSplitWith = splitWith ?? [];
+
+      if (isSplit && finalSplitWith.isNotEmpty) {
+        // Equal split among all participants
+        final shareAmount = amount / finalSplitWith.length;
+        for (String userId in finalSplitWith) {
+          splitAmounts[userId] = shareAmount;
+          // Person who paid is automatically settled
+          settlementStatus[userId] = (userId == user.uid);
+        }
+      }
 
       final expense = MemberExpense(
         id: '',
@@ -198,9 +216,14 @@ class BudgetCollaborationService {
         userName: user.displayName ?? 'Unknown',
         amount: amount,
         category: category,
+        title: title,
         description: description,
         date: DateTime.now(),
         receiptUrl: receiptUrl,
+        isSplit: isSplit,
+        splitWith: finalSplitWith,
+        splitAmounts: splitAmounts,
+        settlementStatus: settlementStatus,
       );
 
       await _firestore
@@ -213,6 +236,16 @@ class BudgetCollaborationService {
       await _firestore.collection('shared_budgets').doc(budgetId).update({
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       });
+
+      // TODO: Send notifications to split participants
+      if (isSplit && finalSplitWith.isNotEmpty) {
+        for (String userId in finalSplitWith) {
+          if (userId != user.uid) {
+            // Will implement notification system
+            print('📬 Notification: User $userId owes ${splitAmounts[userId]}');
+          }
+        }
+      }
 
       return true;
     } catch (e) {
@@ -227,6 +260,7 @@ class BudgetCollaborationService {
     required String expenseId,
     required double amount,
     required String category,
+    String? title,
     String? description,
   }) async {
     try {
@@ -238,6 +272,7 @@ class BudgetCollaborationService {
           .update({
         'amount': amount,
         'category': category,
+        'title': title,
         'description': description,
         'date': DateTime.now().millisecondsSinceEpoch, // Update timestamp
       });
@@ -276,6 +311,104 @@ class BudgetCollaborationService {
     } catch (e) {
       print('Error deleting expense: $e');
       return false;
+    }
+  }
+
+  /// Mark a split settlement as paid
+  static Future<bool> markSettlement({
+    required String budgetId,
+    required String expenseId,
+    required String userId,
+    required bool settled,
+  }) async {
+    try {
+      final expenseDoc = await _firestore
+          .collection('shared_budgets')
+          .doc(budgetId)
+          .collection('expenses')
+          .doc(expenseId)
+          .get();
+      
+      if (!expenseDoc.exists) return false;
+      
+      final expense = MemberExpense.fromMap(expenseDoc.data()!, expenseId);
+      final updatedSettlementStatus = Map<String, bool>.from(expense.settlementStatus);
+      updatedSettlementStatus[userId] = settled;
+
+      await expenseDoc.reference.update({
+        'settlementStatus': updatedSettlementStatus,
+      });
+
+      // TODO: Send notification to expense owner
+      print('✅ Settlement marked: $userId -> $settled');
+
+      return true;
+    } catch (e) {
+      print('Error marking settlement: $e');
+      return false;
+    }
+  }
+
+  /// Get who owes what summary for a specific user
+  static Future<Map<String, dynamic>> getOweSummary({
+    required String budgetId,
+    required String userId,
+  }) async {
+    try {
+      final expensesSnapshot = await _firestore
+          .collection('shared_budgets')
+          .doc(budgetId)
+          .collection('expenses')
+          .get();
+      
+      final expenses = expensesSnapshot.docs
+          .map((doc) => MemberExpense.fromMap(doc.data(), doc.id))
+          .where((e) => e.isSplit)
+          .toList();
+
+      double youOwe = 0.0;
+      double owedToYou = 0.0;
+      Map<String, double> oweToOthers = {};
+      Map<String, double> othersOweYou = {};
+
+      for (var expense in expenses) {
+        // Expenses where you owe money
+        if (expense.splitWith.contains(userId) && 
+            expense.userId != userId &&
+            !expense.hasUserSettled(userId)) {
+          final amount = expense.getShareForUser(userId);
+          youOwe += amount;
+          oweToOthers[expense.userId] = (oweToOthers[expense.userId] ?? 0.0) + amount;
+        }
+        
+        // Expenses where others owe you
+        if (expense.userId == userId) {
+          for (String memberId in expense.splitWith) {
+            if (memberId != userId && !expense.hasUserSettled(memberId)) {
+              final amount = expense.getShareForUser(memberId);
+              owedToYou += amount;
+              othersOweYou[memberId] = (othersOweYou[memberId] ?? 0.0) + amount;
+            }
+          }
+        }
+      }
+
+      return {
+        'youOwe': youOwe,
+        'owedToYou': owedToYou,
+        'netBalance': owedToYou - youOwe,
+        'oweToOthers': oweToOthers,
+        'othersOweYou': othersOweYou,
+      };
+    } catch (e) {
+      print('Error getting owe summary: $e');
+      return {
+        'youOwe': 0.0,
+        'owedToYou': 0.0,
+        'netBalance': 0.0,
+        'oweToOthers': {},
+        'othersOweYou': {},
+      };
     }
   }
 

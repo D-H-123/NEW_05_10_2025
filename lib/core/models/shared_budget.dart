@@ -118,13 +118,20 @@ class BudgetMember {
 
 class MemberExpense {
   final String id;
-  final String userId;
+  final String userId;         // Who paid
   final String userName;
-  final double amount;
+  final double amount;          // Total amount paid
   final String category;
+  final String? title;          // User-defined expense title
   final String? description;
   final DateTime date;
   final String? receiptUrl;
+  
+  // Split expense fields
+  final bool isSplit;           // Is this expense split?
+  final List<String> splitWith; // UserIds of people involved in split
+  final Map<String, double> splitAmounts;     // userId -> amount they owe
+  final Map<String, bool> settlementStatus;   // userId -> settled or not
 
   MemberExpense({
     required this.id,
@@ -132,9 +139,14 @@ class MemberExpense {
     required this.userName,
     required this.amount,
     required this.category,
+    this.title,
     this.description,
     required this.date,
     this.receiptUrl,
+    this.isSplit = false,
+    this.splitWith = const [],
+    this.splitAmounts = const {},
+    this.settlementStatus = const {},
   });
 
   factory MemberExpense.fromMap(Map<String, dynamic> map, String id) {
@@ -144,9 +156,18 @@ class MemberExpense {
       userName: map['userName'] ?? '',
       amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
       category: map['category'] ?? '',
+      title: map['title'],
       description: map['description'],
       date: DateTime.fromMillisecondsSinceEpoch(map['date'] ?? 0),
       receiptUrl: map['receiptUrl'],
+      isSplit: map['isSplit'] ?? false,
+      splitWith: (map['splitWith'] as List<dynamic>?)?.cast<String>() ?? [],
+      splitAmounts: (map['splitAmounts'] as Map<String, dynamic>?)?.map(
+        (key, value) => MapEntry(key, (value as num).toDouble()),
+      ) ?? {},
+      settlementStatus: (map['settlementStatus'] as Map<String, dynamic>?)?.map(
+        (key, value) => MapEntry(key, value as bool),
+      ) ?? {},
     );
   }
 
@@ -156,10 +177,33 @@ class MemberExpense {
       'userName': userName,
       'amount': amount,
       'category': category,
+      'title': title,
       'description': description,
       'date': date.millisecondsSinceEpoch,
       'receiptUrl': receiptUrl,
+      'isSplit': isSplit,
+      'splitWith': splitWith,
+      'splitAmounts': splitAmounts,
+      'settlementStatus': settlementStatus,
     };
+  }
+  
+  // Helper: Get share for a specific user
+  double getShareForUser(String userId) {
+    return splitAmounts[userId] ?? 0.0;
+  }
+  
+  // Helper: Check if user has settled
+  bool hasUserSettled(String userId) {
+    return settlementStatus[userId] ?? false;
+  }
+  
+  // Helper: Get number of people in split
+  int get splitCount => splitWith.length;
+  
+  // Helper: Get pending settlements count
+  int get pendingSettlements {
+    return settlementStatus.values.where((settled) => !settled).length;
   }
 }
 

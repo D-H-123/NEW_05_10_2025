@@ -1928,12 +1928,12 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                             crossAxisAlignment: CrossAxisAlignment.start,
                                                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                             children: [
-                                                              // Title (bold)
+                                                              // Title (bold and bigger - primary focus)
                                                               Text(
                                                                 (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
                                                                 style: const TextStyle(
                                                                   fontWeight: FontWeight.bold,
-                                                                  fontSize: 16,
+                                                                  fontSize: 17,
                                                                   color: Colors.black87,
                                                                 ),
                                                                 maxLines: 1,
@@ -1947,13 +1947,13 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                                   fontSize: 12,
                                                                 ),
                                                               ),
-                                                              // Amount (highlighted)
+                                                              // Amount (smaller - secondary info)
                                                               Text(
                                                                 '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
                                                                 style: const TextStyle(
                                                                   color: Color(0xFF4facfe),
-                                                                  fontSize: 16,
-                                                                  fontWeight: FontWeight.bold,
+                                                                  fontSize: 14,
+                                                                  fontWeight: FontWeight.w600,
                                                                 ),
                                                               ),
                                                             ],

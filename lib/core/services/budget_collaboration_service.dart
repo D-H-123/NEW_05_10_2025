@@ -181,6 +181,7 @@ class BudgetCollaborationService {
   }
 
   /// Add expense to shared budget (with optional split)
+  /// [customSplitAmounts] - Optional map of userId -> custom amount. If provided, uses custom amounts instead of equal split.
   static Future<bool> addExpense({
     required String budgetId,
     required double amount,
@@ -190,6 +191,7 @@ class BudgetCollaborationService {
     String? receiptUrl,
     bool isSplit = false,
     List<String>? splitWith,
+    Map<String, double>? customSplitAmounts,
   }) async {
     try {
       final user = _auth.currentUser;
@@ -201,12 +203,21 @@ class BudgetCollaborationService {
       List<String> finalSplitWith = splitWith ?? [];
 
       if (isSplit && finalSplitWith.isNotEmpty) {
-        // Equal split among all participants
-        final shareAmount = amount / finalSplitWith.length;
-        for (String userId in finalSplitWith) {
-          splitAmounts[userId] = shareAmount;
-          // Person who paid is automatically settled
-          settlementStatus[userId] = (userId == user.uid);
+        if (customSplitAmounts != null && customSplitAmounts.isNotEmpty) {
+          // Use custom split amounts
+          for (String userId in finalSplitWith) {
+            splitAmounts[userId] = customSplitAmounts[userId] ?? 0.0;
+            // Person who paid is automatically settled
+            settlementStatus[userId] = (userId == user.uid);
+          }
+        } else {
+          // Equal split among all participants (default)
+          final shareAmount = amount / finalSplitWith.length;
+          for (String userId in finalSplitWith) {
+            splitAmounts[userId] = shareAmount;
+            // Person who paid is automatically settled
+            settlementStatus[userId] = (userId == user.uid);
+          }
         }
       }
 
@@ -314,12 +325,13 @@ class BudgetCollaborationService {
     }
   }
 
-  /// Mark a split settlement as paid
+  /// Mark a split settlement as paid (with optional partial payment amount)
   static Future<bool> markSettlement({
     required String budgetId,
     required String expenseId,
     required String userId,
     required bool settled,
+    double? paymentAmount,
   }) async {
     try {
       final expenseDoc = await _firestore
@@ -333,14 +345,38 @@ class BudgetCollaborationService {
       
       final expense = MemberExpense.fromMap(expenseDoc.data()!, expenseId);
       final updatedSettlementStatus = Map<String, bool>.from(expense.settlementStatus);
-      updatedSettlementStatus[userId] = settled;
+      final updatedPaidAmounts = Map<String, double>.from(expense.paidAmounts);
+      
+      // Handle payment amount
+      if (paymentAmount != null && paymentAmount > 0) {
+        final currentPaid = updatedPaidAmounts[userId] ?? 0.0;
+        final newPaid = currentPaid + paymentAmount;
+        final owed = expense.splitAmounts[userId] ?? 0.0;
+        
+        updatedPaidAmounts[userId] = newPaid;
+        
+        // If paid amount >= owed amount, mark as fully settled
+        if (newPaid >= owed - 0.01) {
+          updatedSettlementStatus[userId] = true;
+          updatedPaidAmounts[userId] = owed; // Cap at owed amount
+        }
+      } else {
+        // Old behavior: just mark as settled/not settled
+        updatedSettlementStatus[userId] = settled;
+        if (settled) {
+          // If marking as settled without amount, assume full payment
+          final owed = expense.splitAmounts[userId] ?? 0.0;
+          updatedPaidAmounts[userId] = owed;
+        }
+      }
 
       await expenseDoc.reference.update({
         'settlementStatus': updatedSettlementStatus,
+        'paidAmounts': updatedPaidAmounts,
       });
 
       // TODO: Send notification to expense owner
-      print('✅ Settlement marked: $userId -> $settled');
+      print('✅ Settlement marked: $userId -> $settled, paid: ${updatedPaidAmounts[userId]}');
 
       return true;
     } catch (e) {
@@ -517,5 +553,110 @@ class BudgetCollaborationService {
       return null;
     }
   }
+
+  /// Get unpaid shared expenses for current user
+  /// Returns list of expenses where user owes money
+  /// Optimized with parallel fetching and caching
+  static Stream<List<UnpaidSharedExpense>> getUnpaidSharedExpenses() {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return Stream.value([]);
+    }
+
+    // Query budgets where user is a member (not just owner)
+    return _firestore
+        .collection('shared_budgets')
+        .where('memberIds', arrayContains: user.uid)
+        .snapshots()
+        .asyncMap((budgetsSnapshot) async {
+      if (budgetsSnapshot.docs.isEmpty) {
+        return <UnpaidSharedExpense>[];
+      }
+
+      // Fetch expenses for ALL budgets in parallel (not sequential)
+      final expenseFutures = budgetsSnapshot.docs.map((budgetDoc) async {
+        try {
+          final budget = SharedBudget.fromMap(budgetDoc.data(), budgetDoc.id);
+          
+          // Get expenses for this budget
+          final expensesSnapshot = await _firestore
+              .collection('shared_budgets')
+              .doc(budget.id)
+              .collection('expenses')
+              .orderBy('date', descending: true)
+              .get();
+
+          final budgetExpenses = <UnpaidSharedExpense>[];
+
+          for (var doc in expensesSnapshot.docs) {
+            try {
+              final expense = MemberExpense.fromMap(doc.data(), doc.id);
+              
+              // Only include split expenses where user is involved
+              if (!expense.isSplit || expense.splitWith.isEmpty) continue;
+              
+              // Only include if user is NOT the payer (they owe money)
+              if (expense.userId == user.uid) continue;
+              
+              // Only include if user is in the split
+              if (!expense.splitWith.contains(user.uid)) continue;
+              
+              // Calculate remaining amount user owes
+              final remaining = expense.getRemainingAmount(user.uid);
+              
+              // Only include if user still owes money
+              if (remaining <= 0) continue;
+              
+              budgetExpenses.add(UnpaidSharedExpense(
+                budget: budget,
+                expense: expense,
+                remainingAmount: remaining,
+                totalOwed: expense.getShareForUser(user.uid),
+                paidAmount: expense.getPaidAmount(user.uid),
+              ));
+            } catch (e) {
+              print('Error processing expense ${doc.id}: $e');
+            }
+          }
+          
+          return budgetExpenses;
+        } catch (e) {
+          print('Error processing budget ${budgetDoc.id}: $e');
+          return <UnpaidSharedExpense>[];
+        }
+      });
+
+      // Wait for all budgets to finish in parallel
+      final allExpensesResults = await Future.wait(expenseFutures);
+      
+      // Combine all results
+      final unpaidExpenses = <UnpaidSharedExpense>[];
+      for (final expenses in allExpensesResults) {
+        unpaidExpenses.addAll(expenses);
+      }
+
+      // Sort by date (newest first)
+      unpaidExpenses.sort((a, b) => b.expense.date.compareTo(a.expense.date));
+      
+      return unpaidExpenses;
+    });
+  }
+}
+
+/// Model for unpaid shared expense displayed in storage page
+class UnpaidSharedExpense {
+  final SharedBudget budget;
+  final MemberExpense expense;
+  final double remainingAmount;
+  final double totalOwed;
+  final double paidAmount;
+
+  UnpaidSharedExpense({
+    required this.budget,
+    required this.expense,
+    required this.remainingAmount,
+    required this.totalOwed,
+    required this.paidAmount,
+  });
 }
 

@@ -247,30 +247,39 @@ class SubscriptionIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     if (subscriptionType == null) return const SizedBox.shrink();
     
+    final letter = _getLetterForFrequency(subscriptionType!);
+    
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: const Color(0xFF4facfe), // Use app primary color
         shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF667eea).withOpacity(0.4),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
-      child: const Icon(
-        Icons.subscriptions,
-        color: Colors.white,
-        size: 12,
+      child: Center(
+        child: Text(
+          letter,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: size * 0.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
+  }
+
+  String _getLetterForFrequency(String frequency) {
+    switch (frequency.toLowerCase()) {
+      case 'weekly':
+        return 'W';
+      case 'monthly':
+        return 'M';
+      case 'yearly':
+        return 'Y';
+      default:
+        return 'S';
+    }
   }
 }
 
@@ -278,59 +287,18 @@ class SubscriptionCardDecoration extends StatelessWidget {
   final Widget child;
   final String? subscriptionType;
   final bool isSubscription;
-  final Function(String)? onFrequencyChanged;
 
   const SubscriptionCardDecoration({
     super.key,
     required this.child,
     this.subscriptionType,
     this.isSubscription = false,
-    this.onFrequencyChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!isSubscription || subscriptionType == null) {
-      return child;
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-            spreadRadius: 0,
-          ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          child,
-          // Bottom-right subscription badge
-          if (subscriptionType != null)
-            Positioned(
-              bottom: 8,
-              right: 8,
-              child: SubscriptionBadge(
-                subscriptionType: subscriptionType!,
-                size: 11,
-                showText: true,
-                isInteractive: true,
-                onFrequencyChanged: onFrequencyChanged,
-              ),
-            ),
-        ],
-      ),
-    );
+    // Simply return the child without decoration - subscription indicator will be shown inline
+    return child;
   }
 
 }

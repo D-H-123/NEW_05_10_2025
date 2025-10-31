@@ -1,5 +1,6 @@
 import 'package:smart_receipt/features/storage/models/bill_model.dart';
 import 'local_storage_service.dart';
+import 'budget_collaboration_service.dart';
 
 enum TimeFilter { week, month, year }
 enum DataSource { local, cloud }
@@ -60,9 +61,56 @@ class AnalyticsRepository {
   }
 
   /// Calculate total spent for a given time filter
+  /// Includes shared expenses if setting is enabled
   Future<double> getTotalSpent({required TimeFilter filter}) async {
     final List<Bill> bills = await getBills(filter: filter);
-    return bills.fold<double>(0.0, (double sum, Bill bill) => sum + (bill.total ?? 0.0));
+    double total = bills.fold<double>(0.0, (double sum, Bill bill) => sum + (bill.total ?? 0.0));
+    
+    // Add shared expenses if setting is enabled
+    final showSharedExpenses = LocalStorageService.getBoolSetting(LocalStorageService.kShowSharedExpenses, defaultValue: false);
+    if (showSharedExpenses) {
+      final sharedExpenseTotal = await _getSharedExpenseTotal(filter);
+      total += sharedExpenseTotal;
+    }
+    
+    return total;
+  }
+
+  /// Get total amount from unpaid shared expenses for a time period
+  Future<double> _getSharedExpenseTotal(TimeFilter filter) async {
+    try {
+      final unpaidExpenses = await BudgetCollaborationService.getUnpaidSharedExpenses().first;
+      if (unpaidExpenses.isEmpty) return 0.0;
+      
+      final now = DateTime.now();
+      DateTime start;
+      switch (filter) {
+        case TimeFilter.week:
+          start = now.subtract(Duration(days: now.weekday - 1));
+          start = DateTime(start.year, start.month, start.day);
+          break;
+        case TimeFilter.month:
+          start = DateTime(now.year, now.month, 1);
+          break;
+        case TimeFilter.year:
+          start = DateTime(now.year, 1, 1);
+          break;
+      }
+      
+      double total = 0.0;
+      for (final unpaid in unpaidExpenses) {
+        final expenseDate = unpaid.expense.date;
+        // Include if expense is within the time period
+        if (!expenseDate.isBefore(start) && !expenseDate.isAfter(now)) {
+          total += unpaid.remainingAmount;
+        }
+      }
+      
+      return total;
+    } catch (e) {
+      print('Error calculating shared expense total: $e');
+      return 0.0;
+    }
   }
 
   /// Calculate total spent for a specific date range

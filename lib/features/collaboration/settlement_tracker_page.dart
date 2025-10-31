@@ -3,217 +3,288 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/models/shared_budget.dart';
 import '../../core/services/budget_collaboration_service.dart';
 
-class SettlementTrackerPage extends StatefulWidget {
+/// Simplified Settlement Tracker as Bottom Sheet
+/// Features:
+/// - Tab-based view (You Owe vs Owed to You)
+/// - Performance optimized (calculations cached)
+/// - Card-based quick actions
+/// - Better visual indicators
+class SettlementTrackerSheet extends StatefulWidget {
   final SharedBudget budget;
-  final List<MemberExpense> expenses;
 
-  const SettlementTrackerPage({
+  const SettlementTrackerSheet({
     super.key,
     required this.budget,
-    required this.expenses,
   });
 
+  /// Show settlement tracker as bottom sheet
+  static void show(BuildContext context, SharedBudget budget) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SettlementTrackerSheet(budget: budget),
+    );
+  }
+
   @override
-  State<SettlementTrackerPage> createState() => _SettlementTrackerPageState();
+  State<SettlementTrackerSheet> createState() => _SettlementTrackerSheetState();
 }
 
-class _SettlementTrackerPageState extends State<SettlementTrackerPage> {
+class _SettlementTrackerSheetState extends State<SettlementTrackerSheet>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  Map<String, dynamic>? _cachedSummary;
+  List<MemberExpense>? _cachedExpenses;
+  String? _currentUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _currentUserId = FirebaseAuth.instance.currentUser?.uid;
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Map<String, dynamic> _calculateSummary(List<MemberExpense> expenses) {
+    if (_cachedSummary != null && 
+        _cachedExpenses == expenses && 
+        expenses.isNotEmpty) {
+      return _cachedSummary!;
+    }
+
+    if (_currentUserId == null) {
+      return {
+        'youOwe': 0.0,
+        'owedToYou': 0.0,
+        'youOweDetails': <String, double>{},
+        'owedToYouDetails': <String, double>{},
+      };
+    }
+
+    double youOwe = 0.0;
+    double owedToYou = 0.0;
+    final Map<String, double> youOweDetails = {};
+    final Map<String, double> owedToYouDetails = {};
+
+    for (final expense in expenses) {
+      if (!expense.isSplit || expense.splitWith.isEmpty) continue;
+
+      // If current user is NOT the payer but is in the split
+      if (expense.userId != _currentUserId && 
+          expense.splitWith.contains(_currentUserId!)) {
+        final share = expense.getShareForUser(_currentUserId!);
+        if (!expense.hasUserSettled(_currentUserId!)) {
+          youOwe += share;
+          final payerId = expense.userId;
+          youOweDetails[payerId] = (youOweDetails[payerId] ?? 0) + share;
+        }
+      }
+
+      // If current user IS the payer
+      if (expense.userId == _currentUserId) {
+        for (final userId in expense.splitWith) {
+          if (userId != _currentUserId && !expense.hasUserSettled(userId)) {
+            final share = expense.getShareForUser(userId);
+            owedToYou += share;
+            owedToYouDetails[userId] = (owedToYouDetails[userId] ?? 0) + share;
+          }
+        }
+      }
+    }
+
+    final summary = {
+      'youOwe': youOwe,
+      'owedToYou': owedToYou,
+      'youOweDetails': youOweDetails,
+      'owedToYouDetails': owedToYouDetails,
+    };
+
+    // Cache results
+    _cachedSummary = summary;
+    _cachedExpenses = List.from(expenses);
+
+    return summary;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUserId == null) {
-      return const Scaffold(
-        body: Center(child: Text('Please log in')),
+    if (_currentUserId == null) {
+      return Container(
+        height: 200,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: const Center(child: Text('Please log in')),
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Who Owes What',
-          style: TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-          ),
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black87),
-      ),
-      body: StreamBuilder<List<MemberExpense>>(
-        stream: BudgetCollaborationService.getSharedBudgetExpenses(widget.budget.id),
-        builder: (context, snapshot) {
-          final expenses = snapshot.data ?? [];
-          final summary = _calculateSettlementSummary(currentUserId, expenses);
+        child: Column(
+          children: [
+            // Handle
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
 
-          return SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Summary Card
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF4facfe), Color(0xFF00f2fe)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF4facfe).withOpacity(0.3),
-                          blurRadius: 15,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.account_balance_wallet, color: Colors.white, size: 28),
-                            SizedBox(width: 12),
-                            Text(
-                              'Settlement Summary',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildSummaryItem(
-                                'You Owe',
-                                summary['youOwe']!,
-                                Icons.arrow_upward,
-                                Colors.red[100]!,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: _buildSummaryItem(
-                                'Owed to You',
-                                summary['owedToYou']!,
-                                Icons.arrow_downward,
-                                Colors.green[100]!,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+            // Summary Cards (Top Section)
+            StreamBuilder<List<MemberExpense>>(
+              stream: BudgetCollaborationService.getSharedBudgetExpenses(widget.budget.id),
+              builder: (context, snapshot) {
+                final expenses = snapshot.data ?? [];
+                final summary = _calculateSummary(expenses);
 
-                  const SizedBox(height: 24),
+                // Reset cache if expenses changed
+                if (_cachedExpenses?.length != expenses.length) {
+                  _cachedSummary = null;
+                }
 
-                  // People You Owe
-                  if ((summary['youOweDetails']! as Map).isNotEmpty) ...[
-                    const Text(
-                      'You Owe',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...(summary['youOweDetails']! as Map<String, double>).entries.map((entry) {
-                      return _buildDebtCard(
-                        entry.key,
-                        entry.value,
-                        true,
-                        expenses,
-                      );
-                    }).toList(),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // People Who Owe You
-                  if ((summary['owedToYouDetails']! as Map).isNotEmpty) ...[
-                    const Text(
-                      'Owed to You',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...(summary['owedToYouDetails']! as Map<String, double>).entries.map((entry) {
-                      return _buildDebtCard(
-                        entry.key,
-                        entry.value,
-                        false,
-                        expenses,
-                      );
-                    }).toList(),
-                  ],
-
-                  // All Settled
-                  if ((summary['youOweDetails']! as Map).isEmpty && 
-                      (summary['owedToYouDetails']! as Map).isEmpty) ...[
-                    Center(
-                      child: Column(
+                return Column(
+                  children: [
+                    // Summary Cards Row
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      child: Row(
                         children: [
-                          const SizedBox(height: 40),
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.check_circle,
-                              size: 80,
-                              color: Colors.green,
+                          Expanded(
+                            child: _SummaryCard(
+                              label: 'You Owe',
+                              amount: summary['youOwe'] as double,
+                              color: Colors.red,
+                              icon: Icons.arrow_upward,
                             ),
                           ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'All Settled!',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _SummaryCard(
+                              label: 'Owed to You',
+                              amount: summary['owedToYou'] as double,
                               color: Colors.green,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No pending settlements',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
+                              icon: Icons.arrow_downward,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
 
-                  const SizedBox(height: 40),
-                ],
-              ),
+                    // Tab Bar
+                    TabBar(
+                      controller: _tabController,
+                      labelColor: const Color(0xFF4facfe),
+                      unselectedLabelColor: Colors.grey,
+                      indicatorColor: const Color(0xFF4facfe),
+                      labelStyle: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                      tabs: const [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.arrow_upward, size: 18),
+                              SizedBox(width: 6),
+                              Text('You Owe'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.arrow_downward, size: 18),
+                              SizedBox(width: 6),
+                              Text('Owed to You'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Tab Content
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _YouOweTab(
+                            budget: widget.budget,
+                            expenses: expenses,
+                            summary: summary['youOweDetails'] as Map<String, double>,
+                          ),
+                          _OwedToYouTab(
+                            budget: widget.budget,
+                            expenses: expenses,
+                            summary: summary['owedToYouDetails'] as Map<String, double>,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
+}
 
-  Widget _buildSummaryItem(String label, double amount, IconData icon, Color bgColor) {
+/// Summary Card Widget (Reusable)
+class _SummaryCard extends StatelessWidget {
+  final String label;
+  final double amount;
+  final Color color;
+  final IconData icon;
+
+  const _SummaryCard({
+    required this.label,
+    required this.amount,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.8),
+            color.withOpacity(0.6),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -240,356 +311,214 @@ class _SettlementTrackerPageState extends State<SettlementTrackerPage> {
       ),
     );
   }
+}
 
-  Widget _buildDebtCard(
-    String userId,
-    double amount,
-    bool isDebt,
-    List<MemberExpense> expenses,
-  ) {
-    final member = widget.budget.members.firstWhere(
-      (m) => m.userId == userId,
-      orElse: () => BudgetMember(
-        userId: userId,
-        name: 'Unknown',
-        role: 'member',
-        joinedAt: DateTime.now(),
-      ),
-    );
+/// "You Owe" Tab Content
+class _YouOweTab extends StatelessWidget {
+  final SharedBudget budget;
+  final List<MemberExpense> expenses;
+  final Map<String, double> summary;
 
-    // Get related expenses
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    final relatedExpenses = expenses.where((e) {
-      return e.isSplit && 
-             e.splitWith.contains(userId) && 
-             ((isDebt && e.userId != currentUserId) ||
-              (!isDebt && e.userId == currentUserId));
-    }).toList();
+  const _YouOweTab({
+    required this.budget,
+    required this.expenses,
+    required this.summary,
+  });
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDebt ? Colors.red.withOpacity(0.2) : Colors.green.withOpacity(0.2),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _showSettlementDetails(member, amount, isDebt, relatedExpenses),
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _getAvatarColor(member.name),
-                  ),
-                  child: Center(
-                    child: Text(
-                      member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        member.name,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${relatedExpenses.length} ${relatedExpenses.length == 1 ? 'expense' : 'expenses'}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '\$${amount.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: isDebt ? Colors.red : Colors.green,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Icon(
-                      Icons.chevron_right,
-                      color: Colors.grey[400],
-                    ),
-                  ],
-                ),
-              ],
+  @override
+  Widget build(BuildContext context) {
+    if (summary.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.check_circle,
+              size: 64,
+              color: Colors.green[300],
             ),
-          ),
+            const SizedBox(height: 16),
+            Text(
+              'All Clear!',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You don\'t owe anyone',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  Map<String, dynamic> _calculateSettlementSummary(String currentUserId, List<MemberExpense> expenses) {
-    double youOwe = 0.0;
-    double owedToYou = 0.0;
-    Map<String, double> youOweDetails = {};
-    Map<String, double> owedToYouDetails = {};
-
-    for (final expense in expenses) {
-      if (!expense.isSplit || expense.splitWith.isEmpty) continue;
-
-      // If current user is NOT the payer but is in the split
-      if (expense.userId != currentUserId && expense.splitWith.contains(currentUserId)) {
-        final share = expense.getShareForUser(currentUserId);
-        if (!expense.hasUserSettled(currentUserId)) {
-          youOwe += share;
-          youOweDetails[expense.userId] = (youOweDetails[expense.userId] ?? 0) + share;
-        }
-      }
-
-      // If current user IS the payer
-      if (expense.userId == currentUserId) {
-        for (final userId in expense.splitWith) {
-          if (userId != currentUserId && !expense.hasUserSettled(userId)) {
-            final share = expense.getShareForUser(userId);
-            owedToYou += share;
-            owedToYouDetails[userId] = (owedToYouDetails[userId] ?? 0) + share;
-          }
-        }
-      }
+      );
     }
 
-    return {
-      'youOwe': youOwe,
-      'owedToYou': owedToYou,
-      'youOweDetails': youOweDetails,
-      'owedToYouDetails': owedToYouDetails,
-    };
-  }
-
-  void _showSettlementDetails(
-    BudgetMember member,
-    double totalAmount,
-    bool isDebt,
-    List<MemberExpense> relatedExpenses,
-  ) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: summary.length,
+      itemBuilder: (context, index) {
+        final entry = summary.entries.elementAt(index);
+        final member = budget.members.firstWhere(
+          (m) => m.userId == entry.key,
+          orElse: () => BudgetMember(
+            userId: entry.key,
+            name: 'Unknown',
+            role: 'member',
+            joinedAt: DateTime.now(),
           ),
-          child: Column(
-            children: [
-              // Handle
-              Container(
-                margin: const EdgeInsets.only(top: 12, bottom: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _getAvatarColor(member.name),
-                      ),
-                      child: Center(
-                        child: Text(
-                          member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            member.name,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            isDebt ? 'You owe \$${totalAmount.toStringAsFixed(2)}' : 'Owes you \$${totalAmount.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: isDebt ? Colors.red : Colors.green,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+        );
 
-              const Divider(),
+        // Get related expenses for quick settlement
+        final relatedExpenses = expenses.where((e) =>
+          e.isSplit &&
+          e.userId == entry.key &&
+          e.splitWith.contains(FirebaseAuth.instance.currentUser?.uid ?? '') &&
+          !e.hasUserSettled(FirebaseAuth.instance.currentUser?.uid ?? '')
+        ).toList();
 
-              // Expense List
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  itemCount: relatedExpenses.length,
-                  itemBuilder: (context, index) {
-                    final expense = relatedExpenses[index];
-                    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-                    final share = expense.getShareForUser(currentUserId!);
-                    final isSettled = expense.hasUserSettled(currentUserId);
-
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: isSettled 
-                            ? Colors.green.withOpacity(0.05)
-                            : Colors.orange.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSettled 
-                              ? Colors.green.withOpacity(0.2)
-                              : Colors.orange.withOpacity(0.2),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  expense.category,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Your share: \$${share.toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (!isSettled && isDebt)
-                            ElevatedButton(
-                              onPressed: () => _markAsSettled(expense, member),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text('Settle', style: TextStyle(fontSize: 12)),
-                            )
-                          else if (isSettled)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.green,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.check_circle, color: Colors.white, size: 14),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'Settled',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+        return _SettlementCard(
+          member: member,
+          amount: entry.value,
+          isDebt: true,
+          relatedExpenses: relatedExpenses,
+          budgetId: budget.id,
+        );
+      },
     );
   }
+}
 
-  void _markAsSettled(MemberExpense expense, BudgetMember member) async {
+/// "Owed to You" Tab Content
+class _OwedToYouTab extends StatelessWidget {
+  final SharedBudget budget;
+  final List<MemberExpense> expenses;
+  final Map<String, double> summary;
+
+  const _OwedToYouTab({
+    required this.budget,
+    required this.expenses,
+    required this.summary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (summary.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.account_balance_wallet,
+              size: 64,
+              color: Colors.blue[300],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Pending Payments',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No one owes you anything',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: summary.length,
+      itemBuilder: (context, index) {
+        final entry = summary.entries.elementAt(index);
+        final member = budget.members.firstWhere(
+          (m) => m.userId == entry.key,
+          orElse: () => BudgetMember(
+            userId: entry.key,
+            name: 'Unknown',
+            role: 'member',
+            joinedAt: DateTime.now(),
+          ),
+        );
+
+        // Get related expenses
+        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+        final relatedExpenses = expenses.where((e) =>
+          e.isSplit &&
+          e.userId == currentUserId &&
+          e.splitWith.contains(entry.key) &&
+          !e.hasUserSettled(entry.key)
+        ).toList();
+
+        return _SettlementCard(
+          member: member,
+          amount: entry.value,
+          isDebt: false,
+          relatedExpenses: relatedExpenses,
+          budgetId: budget.id,
+        );
+      },
+    );
+  }
+}
+
+/// Compact Settlement Card with Quick Actions
+class _SettlementCard extends StatelessWidget {
+  final BudgetMember member;
+  final double amount;
+  final bool isDebt;
+  final List<MemberExpense> relatedExpenses;
+  final String budgetId;
+
+  const _SettlementCard({
+    required this.member,
+    required this.amount,
+    required this.isDebt,
+    required this.relatedExpenses,
+    required this.budgetId,
+  });
+
+  Color _getAvatarColor(String name) {
+    final colors = [
+      Colors.blue,
+      Colors.purple,
+      Colors.orange,
+      Colors.green,
+      Colors.red,
+      Colors.teal,
+    ];
+    return colors[name.hashCode % colors.length];
+  }
+
+  Future<void> _handleQuickSettle(BuildContext context) async {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId == null) return;
 
+    // Show confirmation
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Mark as Settled?'),
-        content: Text('Confirm that you have settled \$${expense.getShareForUser(currentUserId).toStringAsFixed(2)} with ${member.name}'),
+        title: Text(isDebt ? 'Mark as Paid?' : 'Mark as Received?'),
+        content: Text(
+          isDebt
+              ? 'Confirm that you paid \$${amount.toStringAsFixed(2)} to ${member.name}'
+              : 'Confirm that ${member.name} paid you \$${amount.toStringAsFixed(2)}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -607,53 +536,174 @@ class _SettlementTrackerPageState extends State<SettlementTrackerPage> {
       ),
     );
 
-    if (confirmed == true) {
+    if (confirmed != true) return;
+
+    // Mark all related expenses as settled
+    bool allSuccess = true;
+    for (final expense in relatedExpenses) {
+      final userIdToSettle = isDebt ? currentUserId : member.userId;
       final success = await BudgetCollaborationService.markSettlement(
-        budgetId: widget.budget.id,
+        budgetId: budgetId,
         expenseId: expense.id,
-        userId: currentUserId,
+        userId: userIdToSettle,
         settled: true,
       );
+      if (!success) allSuccess = false;
+    }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(
-                  success ? Icons.check_circle : Icons.error,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 8),
-                Text(success ? 'Marked as settled!' : 'Failed to update'),
-              ],
-            ),
-            backgroundColor: success ? Colors.green : Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                allSuccess ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              Text(allSuccess
+                  ? 'Marked as settled!'
+                  : 'Some settlements failed to update'),
+            ],
           ),
-        );
-
-        if (success) {
-          Navigator.pop(context); // Close the bottom sheet
-          setState(() {}); // Refresh the page
-        }
-      }
+          backgroundColor: allSuccess ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
     }
   }
 
-  Color _getAvatarColor(String name) {
-    final colors = [
-      Colors.blue,
-      Colors.purple,
-      Colors.orange,
-      Colors.green,
-      Colors.red,
-      Colors.teal,
-    ];
-    return colors[name.hashCode % colors.length];
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDebt
+              ? Colors.red.withOpacity(0.2)
+              : Colors.green.withOpacity(0.2),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // Avatar
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _getAvatarColor(member.name),
+              ),
+              child: Center(
+                child: Text(
+                  member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+
+            // Name and Details
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    member.name,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${relatedExpenses.length} ${relatedExpenses.length == 1 ? 'expense' : 'expenses'}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Amount and Quick Action
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '\$${amount.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: isDebt ? Colors.red : Colors.green,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Quick Settle Button (only for debts)
+                if (isDebt)
+                  ElevatedButton.icon(
+                    onPressed: () => _handleQuickSettle(context),
+                    icon: const Icon(Icons.check_circle, size: 16),
+                    label: const Text('Settle', style: TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.blue.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Text(
+                      'Pending',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue[700],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
-

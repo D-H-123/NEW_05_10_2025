@@ -22,6 +22,8 @@ import '../../../core/widgets/brand_icon_widget.dart';
 import '../../../core/widgets/category_chip_selector.dart';
 import '../../home/dynamic_expense_modal.dart';
 import '../models/bill_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../../core/services/budget_collaboration_service.dart';
 
 class BillsPage extends ConsumerStatefulWidget {
   const BillsPage({super.key});
@@ -48,12 +50,14 @@ class _BillsPageState extends ConsumerState<BillsPage> {
   DateTime _currentCalendarMonth = DateTime.now();
   bool _isCalendarIntegrationEnabled = false;
   bool _isLocationFilterEnabled = false;
+  bool _showSharedExpenses = false;
 
   @override
   void initState() {
     super.initState();
     _isCalendarIntegrationEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
     _isLocationFilterEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
+    _showSharedExpenses = LocalStorageService.getBoolSetting(LocalStorageService.kShowSharedExpenses, defaultValue: false);
   }
 
   @override
@@ -62,6 +66,7 @@ class _BillsPageState extends ConsumerState<BillsPage> {
     // Refresh settings when returning to this page
     _isCalendarIntegrationEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
     _isLocationFilterEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
+    _showSharedExpenses = LocalStorageService.getBoolSetting(LocalStorageService.kShowSharedExpenses, defaultValue: false);
   }
 
   void _showBillOptions(BuildContext context, dynamic bill) {
@@ -1414,6 +1419,20 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           onPressed: () => context.go('/home'),
         ),
         actions: [
+          // Shared Expenses Toggle
+          IconButton(
+            icon: Icon(
+              _showSharedExpenses ? Icons.people_alt : Icons.people_outline,
+              color: _showSharedExpenses ? const Color(0xFF4facfe) : Colors.grey[600],
+            ),
+            tooltip: _showSharedExpenses ? 'Hide Shared Expenses' : 'Show Shared Expenses',
+            onPressed: () {
+              setState(() {
+                _showSharedExpenses = !_showSharedExpenses;
+                LocalStorageService.setBoolSetting(LocalStorageService.kShowSharedExpenses, _showSharedExpenses);
+              });
+            },
+          ),
           // Calendar View Button (only if calendar integration is enabled)
           if (_isCalendarIntegrationEnabled) ...[
             Container(
@@ -1528,6 +1547,72 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
               ),
             ),
           ),
+          
+          // Shared Expenses Section (if enabled)
+          if (_showSharedExpenses)
+            StreamBuilder<List<UnpaidSharedExpense>>(
+              stream: BudgetCollaborationService.getUnpaidSharedExpenses(),
+              builder: (context, snapshot) {
+                // Show minimal loading indicator (only if no data yet)
+                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                  return Container(
+                    height: 50,
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF4facfe),
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                
+                // Show error if any
+                if (snapshot.hasError) {
+                  return Container(
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Error loading shared expenses',
+                            style: TextStyle(color: Colors.red[700], fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                final unpaidExpenses = snapshot.data ?? [];
+                
+                if (unpaidExpenses.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                
+                final totalOwed = unpaidExpenses.fold<double>(0.0, (sum, e) => sum + e.remainingAmount);
+                
+                return Column(
+                  children: [
+                    // Summary Widget
+                    _buildSharedExpensesSummary(context, totalOwed, unpaidExpenses.length),
+                    // Shared Expenses List
+                    _buildSharedExpensesList(context, unpaidExpenses),
+                  ],
+                );
+              },
+            ),
           
           // View Mode Content
           Expanded(
@@ -1866,29 +1951,29 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                             child: SubscriptionCardDecoration(
                                               isSubscription: bill.subscriptionType != null,
                                               subscriptionType: bill.subscriptionType,
-                                              onFrequencyChanged: (newFrequency) {
-                                                _updateSubscriptionFrequency(bill, newFrequency);
-                                              },
-                                              child: Container(
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius: BorderRadius.circular(12),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black.withOpacity(0.08),
-                                                    blurRadius: 8,
-                                                    offset: const Offset(0, 2),
-                                                    spreadRadius: 0,
-                                                  ),
-                                                  BoxShadow(
-                                                    color: Colors.black.withOpacity(0.04),
-                                                    blurRadius: 4,
-                                                    offset: const Offset(0, 1),
-                                                    spreadRadius: 0,
-                                                  ),
-                                                ],
-                                              ),
-                                            child: IntrinsicHeight(
+                                              child: Stack(
+                                                clipBehavior: Clip.none,
+                                                children: [
+                                                  Container(
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius: BorderRadius.circular(12),
+                                                      boxShadow: [
+                                                        BoxShadow(
+                                                          color: Colors.black.withOpacity(0.08),
+                                                          blurRadius: 8,
+                                                          offset: const Offset(0, 2),
+                                                          spreadRadius: 0,
+                                                        ),
+                                                        BoxShadow(
+                                                          color: Colors.black.withOpacity(0.04),
+                                                          blurRadius: 4,
+                                                          offset: const Offset(0, 1),
+                                                          spreadRadius: 0,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    child: IntrinsicHeight(
                                               child: Row(
                                               children: [
                                                 // Receipt Image or Brand Icon (LEFT SIDE)
@@ -1896,7 +1981,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                   width: 80,
                                                   decoration: BoxDecoration(
                                                     borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-                                                    color: _shouldShowBrandIcon(bill) ? Colors.grey[100] : null,
+                                                    color: _shouldShowBrandIcon(bill) ? const Color(0xFFF1F3F4) : null,
                                                     image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
                                                       image: FileImage(File(bill.imagePath)),
                                                       fit: BoxFit.cover,
@@ -1932,22 +2017,25 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                               Text(
                                                                 (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
                                                                 style: const TextStyle(
-                                                                  fontWeight: FontWeight.bold,
-                                                                  fontSize: 17,
-                                                                  color: Colors.black87,
+                                                                  fontWeight: FontWeight.w600,
+                                                                  fontSize: 16,
+                                                                  color: Color(0xFF1A1A1A),
                                                                 ),
                                                                 maxLines: 1,
                                                                 overflow: TextOverflow.ellipsis,
                                                               ),
+                                                              const SizedBox(height: 4),
                                                               // Date (small)
                                                               Text(
                                                                 _formatDate(bill.date),
-                                                                style: TextStyle(
-                                                                  color: Colors.grey[600],
+                                                                style: const TextStyle(
+                                                                  color: Color(0xFF6B7280),
                                                                   fontSize: 12,
+                                                                  fontWeight: FontWeight.w400,
                                                                 ),
                                                               ),
-                                                              // Amount (smaller - secondary info)
+                                                              const SizedBox(height: 4),
+                                                              // Amount (highlighted with primary color)
                                                               Text(
                                                                 '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
                                                                 style: const TextStyle(
@@ -1960,94 +2048,96 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                           ),
                                                         ),
                                                         
-                                                        // Right side: Categories as small colored labels (TOP-RIGHT)
+                                                        // Right side: Categories as unified neutral labels (TOP-RIGHT)
                                                         Expanded(
                                                           flex: 2,
                                                           child: Column(
                                                             crossAxisAlignment: CrossAxisAlignment.end,
                                                             mainAxisAlignment: MainAxisAlignment.start,
                                                             children: [
-                                                              if (bill.tags != null && bill.tags!.isNotEmpty)
-                                                                Wrap(
-                                                                  alignment: WrapAlignment.end,
-                                                                  spacing: 4,
-                                                                  runSpacing: 4,
-                                                                  children: bill.tags!.take(3).map<Widget>((tag) => Container(
-                                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                              Wrap(
+                                                                alignment: WrapAlignment.end,
+                                                                spacing: 6,
+                                                                runSpacing: 6,
+                                                                children: [
+                                                                  // Category tags - show first to maintain consistent position
+                                                                  if (bill.tags != null && bill.tags!.isNotEmpty)
+                                                                    ...bill.tags!.take(2).map<Widget>((tag) => Container(
+                                                                    constraints: const BoxConstraints(
+                                                                      minWidth: 80,
+                                                                    ),
+                                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                                     decoration: BoxDecoration(
-                                                                      color: _getCategoryColor(tag).withOpacity(0.15),
-                                                                      borderRadius: BorderRadius.circular(12),
+                                                                      color: const Color(0xFFF8FAFC),
+                                                                      borderRadius: BorderRadius.circular(8),
                                                                       border: Border.all(
-                                                                        color: _getCategoryColor(tag).withOpacity(0.4),
+                                                                        color: const Color(0xFFE1E5E9),
                                                                         width: 1,
                                                                       ),
-                                                                      boxShadow: [
-                                                                        BoxShadow(
-                                                                          color: _getCategoryColor(tag).withOpacity(0.1),
-                                                                          blurRadius: 4,
-                                                                          offset: const Offset(0, 2),
-                                                                        ),
-                                                                      ],
                                                                     ),
                                                                     child: Row(
                                                                       mainAxisSize: MainAxisSize.min,
+                                                                      mainAxisAlignment: MainAxisAlignment.center,
                                                                       children: [
                                                                         Icon(
                                                                           _getCategoryIcon(tag),
                                                                           size: 12,
-                                                                          color: _getCategoryColor(tag),
+                                                                          color: const Color(0xFF6B7280),
                                                                         ),
-                                                                        const SizedBox(width: 4),
-                                                                        Text(
-                                                                          tag,
-                                                                          style: TextStyle(
-                                                                            fontSize: 11,
-                                                                            color: _getCategoryColor(tag),
-                                                                            fontWeight: FontWeight.w600,
+                                                                        const SizedBox(width: 5),
+                                                                        Flexible(
+                                                                          child: Text(
+                                                                            tag,
+                                                                            style: const TextStyle(
+                                                                              fontSize: 11,
+                                                                              color: Color(0xFF1A1A1A),
+                                                                              fontWeight: FontWeight.w500,
+                                                                            ),
+                                                                            maxLines: 1,
+                                                                            overflow: TextOverflow.ellipsis,
                                                                           ),
                                                                         ),
                                                                       ],
                                                                     ),
-                                                                  )).toList(),
-                                                                )
-                                                              else
-                                                                Container(
-                                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                                  decoration: BoxDecoration(
-                                                                    color: Colors.grey.withOpacity(0.15),
-                                                                    borderRadius: BorderRadius.circular(12),
-                                                                    border: Border.all(
-                                                                      color: Colors.grey.withOpacity(0.4),
-                                                                      width: 1,
-                                                                    ),
-                                                                    boxShadow: [
-                                                                      BoxShadow(
-                                                                        color: Colors.grey.withOpacity(0.1),
-                                                                        blurRadius: 4,
-                                                                        offset: const Offset(0, 2),
+                                                                  )),
+                                                                  // Show "Other" tag only if no categories and no subscription
+                                                                  if ((bill.tags == null || bill.tags!.isEmpty) && bill.subscriptionType == null)
+                                                                    Container(
+                                                                      constraints: const BoxConstraints(
+                                                                        minWidth: 80,
                                                                       ),
-                                                                    ],
-                                                                  ),
-                                                                  child: Row(
-                                                                    mainAxisSize: MainAxisSize.min,
-                                                                    children: [
-                                                                      Icon(
-                                                                        Icons.label,
-                                                                        size: 12,
-                                                                        color: Colors.grey[600],
-                                                                      ),
-                                                                      const SizedBox(width: 4),
-                                                                      Text(
-                                                                        'Other',
-                                                                        style: TextStyle(
-                                                                          fontSize: 11,
-                                                                          color: Colors.grey[600],
-                                                                          fontWeight: FontWeight.w600,
+                                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                                      decoration: BoxDecoration(
+                                                                        color: const Color(0xFFF8FAFC),
+                                                                        borderRadius: BorderRadius.circular(8),
+                                                                        border: Border.all(
+                                                                          color: const Color(0xFFE1E5E9),
+                                                                          width: 1,
                                                                         ),
                                                                       ),
-                                                                    ],
-                                                                  ),
-                                                                ),
+                                                                      child: Row(
+                                                                        mainAxisSize: MainAxisSize.min,
+                                                                        mainAxisAlignment: MainAxisAlignment.center,
+                                                                        children: [
+                                                                          const Icon(
+                                                                            Icons.label_outline,
+                                                                            size: 12,
+                                                                            color: Color(0xFF6B7280),
+                                                                          ),
+                                                                          const SizedBox(width: 5),
+                                                                          const Text(
+                                                                            'Other',
+                                                                            style: TextStyle(
+                                                                              fontSize: 11,
+                                                                              color: Color(0xFF1A1A1A),
+                                                                              fontWeight: FontWeight.w500,
+                                                                            ),
+                                                                          ),
+                                                                        ],
+                                                                      ),
+                                                                    ),
+                                                                ],
+                                                              ),
                                                               // Spacer to push categories to top
                                                               const Spacer(),
                                                             ],
@@ -2060,9 +2150,22 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                               ],
                                             ),
                                             ),
+                                                  ),
+                                                  // Subscription frequency indicator - positioned to overlap card edge
+                                                  if (bill.subscriptionType != null)
+                                                    Positioned(
+                                                      top: -8,
+                                                      right: -8,
+                                                      child: SubscriptionIndicator(
+                                                        subscriptionType: bill.subscriptionType,
+                                                        size: 22,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ));
+                                        );
                                     },
                                   ),
                                   ]);
@@ -2170,39 +2273,39 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                           child: SubscriptionCardDecoration(
                             isSubscription: bill.subscriptionType != null,
                             subscriptionType: bill.subscriptionType,
-                            onFrequencyChanged: (newFrequency) {
-                              _updateSubscriptionFrequency(bill, newFrequency);
-                            },
-                            child: Card(
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                    spreadRadius: 0,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Card(
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.04),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 1),
-                                    spreadRadius: 0,
-                                  ),
-                                ],
-                              ),
-                              child: Column(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.08),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
+                                          spreadRadius: 0,
+                                        ),
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.04),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 1),
+                                          spreadRadius: 0,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
                               children: [
                                 Expanded(
                                   child: Container(
                                     decoration: BoxDecoration(
                                       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                                      color: _shouldShowBrandIcon(bill) ? Colors.grey[100] : null,
+                                      color: _shouldShowBrandIcon(bill) ? const Color(0xFFF1F3F4) : null,
                                       image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
                                         image: FileImage(File(bill.imagePath)),
                                         fit: BoxFit.cover,
@@ -2231,7 +2334,8 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                         (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
                                         style: const TextStyle(
                                           fontSize: 12,
-                                          fontWeight: FontWeight.bold,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF1A1A1A),
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -2240,9 +2344,10 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                       // Date (small)
                                       Text(
                                         DateFormat('MMM dd').format(bill.date ?? DateTime.now()),
-                                        style: TextStyle(
+                                        style: const TextStyle(
                                           fontSize: 9,
-                                          color: Colors.grey[600],
+                                          color: Color(0xFF6B7280),
+                                          fontWeight: FontWeight.w400,
                                         ),
                                       ),
                                       const SizedBox(height: 2),
@@ -2252,65 +2357,78 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                         style: const TextStyle(
                                           fontSize: 10,
                                           color: Color(0xFF4facfe),
-                                          fontWeight: FontWeight.bold,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       const SizedBox(height: 4),
-                                      // Categories as small colored labels (TOP-RIGHT)
-                                      if (bill.tags != null && bill.tags!.isNotEmpty)
-                                        Align(
-                                          alignment: Alignment.topRight,
-                                          child: Wrap(
-                                            spacing: 2,
-                                            runSpacing: 1,
-                                            children: bill.tags!.take(2).map<Widget>((tag) => Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: _getCategoryColor(tag).withOpacity(0.15),
-                                                borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: _getCategoryColor(tag).withOpacity(0.4),
-                                                  width: 0.8,
+                                      // Categories and subscription indicator as unified neutral labels
+                                      Wrap(
+                                        spacing: 4,
+                                        runSpacing: 4,
+                                        children: [
+                                          // Category tags - show first to maintain consistent position
+                                          if (bill.tags != null && bill.tags!.isNotEmpty)
+                                            ...bill.tags!.take(2).map<Widget>((tag) => Container(
+                                            constraints: const BoxConstraints(
+                                              minWidth: 60,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF8FAFC),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: const Color(0xFFE1E5E9),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Icon(
+                                                  _getCategoryIcon(tag),
+                                                  size: 8,
+                                                  color: const Color(0xFF6B7280),
                                                 ),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: _getCategoryColor(tag).withOpacity(0.1),
-                                                    blurRadius: 2,
-                                                    offset: const Offset(0, 1),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    _getCategoryIcon(tag),
-                                                    size: 8,
-                                                    color: _getCategoryColor(tag),
-                                                  ),
-                                                  const SizedBox(width: 2),
-                                                  Text(
+                                                const SizedBox(width: 3),
+                                                Flexible(
+                                                  child: Text(
                                                     tag,
-                                                    style: TextStyle(
+                                                    style: const TextStyle(
                                                       fontSize: 8,
-                                                      color: _getCategoryColor(tag),
-                                                      fontWeight: FontWeight.w600,
+                                                      color: Color(0xFF1A1A1A),
+                                                      fontWeight: FontWeight.w500,
                                                     ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
-                                                ],
-                                              ),
-                                            )).toList(),
-                                          ),
-                                        ),
+                                                ),
+                                              ],
+                                            ),
+                                          )),
+                                        ],
+                                      ),
                                     ],
                                   ),
                                 ),
                               ],
                             ),
+                                  ),
+                                ),
+                                // Subscription frequency indicator - positioned to overlap card edge
+                                if (bill.subscriptionType != null)
+                                  Positioned(
+                                    top: -6,
+                                    right: -6,
+                                    child: SubscriptionIndicator(
+                                      subscriptionType: bill.subscriptionType,
+                                      size: 18,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
-                      ),
                       );
                     },
                   ),
@@ -2615,6 +2733,450 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
       ),
     );
   }
+
+  // ==================== Shared Expenses UI ====================
+  
+  /// Build summary widget showing total owed
+  Widget _buildSharedExpensesSummary(BuildContext context, double totalOwed, int count) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF4facfe).withOpacity(0.1),
+            const Color(0xFF4facfe).withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF4facfe).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF4facfe).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.people_alt,
+              color: Color(0xFF4facfe),
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'You Owe from Shared Expenses',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '\$${totalOwed.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF4facfe),
+                  ),
+                ),
+                if (count > 0)
+                  Text(
+                    '$count ${count == 1 ? 'expense' : 'expenses'} pending',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build list of unpaid shared expenses
+  Widget _buildSharedExpensesList(BuildContext context, List<UnpaidSharedExpense> expenses) {
+    return Container(
+      height: 130,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: expenses.length,
+        itemBuilder: (context, index) {
+          final unpaid = expenses[index];
+          return _buildSharedExpenseCard(context, unpaid);
+        },
+      ),
+    );
+  }
+
+  /// Build individual shared expense card
+  Widget _buildSharedExpenseCard(BuildContext context, UnpaidSharedExpense unpaid) {
+    final expense = unpaid.expense;
+    final budget = unpaid.budget;
+    final categoryInfo = CategoryService.getCategoryInfo(expense.category);
+    final isPartiallyPaid = unpaid.paidAmount > 0;
+    
+    return GestureDetector(
+      onTap: () => _showSharedExpenseDetails(context, unpaid),
+      child: Container(
+        width: 280,
+        margin: const EdgeInsets.only(right: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF4facfe).withOpacity(0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4facfe).withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Header with budget name and category
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: (categoryInfo?.color ?? Colors.grey).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    categoryInfo?.icon ?? Icons.category,
+                    size: 16,
+                    color: categoryInfo?.color ?? Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        budget.name,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[600],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        expense.title ?? expense.category,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                // Shared badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4facfe).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.people_alt,
+                    size: 12,
+                    color: Color(0xFF4facfe),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Amount and status
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'You Owe:',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    Text(
+                      '\$${unpaid.remainingAmount.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: isPartiallyPaid ? Colors.orange[700] : const Color(0xFF4facfe),
+                      ),
+                    ),
+                  ],
+                ),
+                // Status badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isPartiallyPaid 
+                        ? Colors.orange.withOpacity(0.15)
+                        : Colors.red.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    isPartiallyPaid ? 'Partial' : 'Unpaid',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: isPartiallyPaid ? Colors.orange[700] : Colors.red[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Show inline details dialog for shared expense
+  Future<void> _showSharedExpenseDetails(BuildContext context, UnpaidSharedExpense unpaid) async {
+    final expense = unpaid.expense;
+    final budget = unpaid.budget;
+    final categoryInfo = CategoryService.getCategoryInfo(expense.category);
+    final payer = budget.members.firstWhere(
+      (m) => m.userId == expense.userId,
+      orElse: () => budget.members.first,
+    );
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (categoryInfo?.color ?? Colors.grey).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                categoryInfo?.icon ?? Icons.category,
+                color: categoryInfo?.color ?? Colors.grey,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    expense.title ?? expense.category,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    budget.name,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Amount details
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4facfe).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow('Total Expense', '\$${expense.amount.toStringAsFixed(2)}'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('Your Share', '\$${unpaid.totalOwed.toStringAsFixed(2)}'),
+                    if (unpaid.paidAmount > 0) ...[
+                      const SizedBox(height: 8),
+                      _buildDetailRow('Paid', '\$${unpaid.paidAmount.toStringAsFixed(2)}', color: Colors.green[700]),
+                    ],
+                    const Divider(height: 16),
+                    _buildDetailRow(
+                      'Remaining',
+                      '\$${unpaid.remainingAmount.toStringAsFixed(2)}',
+                      isBold: true,
+                      color: const Color(0xFF4facfe),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Payer info
+              _buildDetailRow('Paid By', payer.name),
+              if (expense.description?.isNotEmpty == true) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Description:',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  expense.description!,
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Date: ${_formatSharedExpenseDate(expense.date)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _markSharedExpenseAsPaid(context, unpaid);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4facfe),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Mark as Paid'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, {bool isBold = false, Color? color}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey[700],
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+            color: color ?? Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatSharedExpenseDate(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  /// Mark shared expense as paid
+  Future<void> _markSharedExpenseAsPaid(BuildContext context, UnpaidSharedExpense unpaid) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    final success = await BudgetCollaborationService.markSettlement(
+      budgetId: unpaid.budget.id,
+      expenseId: unpaid.expense.id,
+      userId: currentUser.uid,
+      paymentAmount: unpaid.remainingAmount, // Pay full remaining amount
+      settled: true,
+    );
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                success ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  success 
+                      ? 'Marked as paid successfully!'
+                      : 'Failed to mark as paid. Please try again.',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
+  }
+
+  // ==================== End Shared Expenses UI ====================
 
   // Helper method to get vendor name from form data
   String _getVendorName(Map<String, dynamic> formData) {

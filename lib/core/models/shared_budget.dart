@@ -132,6 +132,7 @@ class MemberExpense {
   final List<String> splitWith; // UserIds of people involved in split
   final Map<String, double> splitAmounts;     // userId -> amount they owe
   final Map<String, bool> settlementStatus;   // userId -> settled or not
+  final Map<String, double> paidAmounts;       // userId -> amount they have paid (for partial payments)
 
   MemberExpense({
     required this.id,
@@ -147,6 +148,7 @@ class MemberExpense {
     this.splitWith = const [],
     this.splitAmounts = const {},
     this.settlementStatus = const {},
+    this.paidAmounts = const {},
   });
 
   factory MemberExpense.fromMap(Map<String, dynamic> map, String id) {
@@ -168,6 +170,9 @@ class MemberExpense {
       settlementStatus: (map['settlementStatus'] as Map<String, dynamic>?)?.map(
         (key, value) => MapEntry(key, value as bool),
       ) ?? {},
+      paidAmounts: (map['paidAmounts'] as Map<String, dynamic>?)?.map(
+        (key, value) => MapEntry(key, (value as num).toDouble()),
+      ) ?? {},
     );
   }
 
@@ -185,6 +190,7 @@ class MemberExpense {
       'splitWith': splitWith,
       'splitAmounts': splitAmounts,
       'settlementStatus': settlementStatus,
+      'paidAmounts': paidAmounts,
     };
   }
   
@@ -196,6 +202,25 @@ class MemberExpense {
   // Helper: Check if user has settled
   bool hasUserSettled(String userId) {
     return settlementStatus[userId] ?? false;
+  }
+  
+  // Helper: Get amount paid by user (for partial payments)
+  double getPaidAmount(String userId) {
+    return paidAmounts[userId] ?? 0.0;
+  }
+  
+  // Helper: Get remaining amount for user
+  double getRemainingAmount(String userId) {
+    final owed = splitAmounts[userId] ?? 0.0;
+    final paid = paidAmounts[userId] ?? 0.0;
+    return (owed - paid).clamp(0.0, double.infinity);
+  }
+  
+  // Helper: Check if user has fully paid (considering partial payments)
+  bool isUserFullyPaid(String userId) {
+    final owed = splitAmounts[userId] ?? 0.0;
+    final paid = paidAmounts[userId] ?? 0.0;
+    return paid >= owed - 0.01; // Allow small rounding differences
   }
   
   // Helper: Get number of people in split

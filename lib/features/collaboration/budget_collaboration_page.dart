@@ -7,7 +7,7 @@ import '../../core/services/budget_collaboration_service.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/services/category_service.dart';
 import '../../core/widgets/subscription_paywall.dart';
-import 'settlement_tracker_page.dart';
+import 'settlement_tracker_page.dart' show SettlementTrackerSheet;
 
 class BudgetCollaborationPage extends StatefulWidget {
   const BudgetCollaborationPage({super.key});
@@ -538,16 +538,21 @@ class _BudgetCollaborationPageState extends State<BudgetCollaborationPage> {
               ),
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: amountController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Monthly Amount',
-                hintText: '3000',
-                prefixText: '\$ ',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            SizedBox(
+              height: 56,
+              child: TextField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Monthly Amount',
+                  hintText: '3000',
+                  prefixText: '\$ ',
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
+                style: const TextStyle(fontSize: 16),
               ),
             ),
           ],
@@ -822,50 +827,6 @@ class SharedBudgetDetailsPage extends StatelessWidget {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
         actions: [
-          StreamBuilder<List<MemberExpense>>(
-            stream: BudgetCollaborationService.getSharedBudgetExpenses(budget.id),
-            builder: (context, snapshot) {
-              final expenses = snapshot.data ?? [];
-              final pendingCount = _getPendingSettlementsCount(expenses);
-              
-              return Stack(
-                children: [
-          IconButton(
-                    icon: const Icon(Icons.account_balance_wallet, color: Colors.black87),
-                    onPressed: () => _navigateToSettlementTracker(context, expenses),
-                    tooltip: 'Settlements',
-                  ),
-                  if (pendingCount > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white, width: 1.5),
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 16,
-                          minHeight: 16,
-                        ),
-                        child: Center(
-                          child: Text(
-                            '$pendingCount',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.black87),
             onPressed: () => _showBudgetSettings(context),
@@ -939,11 +900,151 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                           fontSize: 14,
                           color: Colors.white.withOpacity(0.9),
                           fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
+                      
+                      // Settlement Summary (integrated into budget card)
+                      Builder(
+                        builder: (context) {
+                          final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                          if (currentUserId == null) return const SizedBox.shrink();
+                          
+                          // Check if there are any split expenses
+                          final hasSplitExpenses = expenses.any((e) => e.isSplit && e.splitWith.isNotEmpty);
+                          if (!hasSplitExpenses) return const SizedBox.shrink();
+                          
+                          // Calculate settlement summary
+                          double youOwe = 0.0;
+                          double owedToYou = 0.0;
+                          
+                          for (final expense in expenses) {
+                            if (!expense.isSplit || expense.splitWith.isEmpty) continue;
+                            
+                            // If current user is NOT the payer but is in the split
+                            if (expense.userId != currentUserId && 
+                                expense.splitWith.contains(currentUserId)) {
+                              final remaining = expense.getRemainingAmount(currentUserId);
+                              if (remaining > 0) {
+                                youOwe += remaining;
+                              }
+                            }
+                            
+                            // If current user IS the payer
+                            if (expense.userId == currentUserId) {
+                              for (final userId in expense.splitWith) {
+                                if (userId != currentUserId) {
+                                  final remaining = expense.getRemainingAmount(userId);
+                                  if (remaining > 0) {
+                                    owedToYou += remaining;
+                                  }
+                                }
+                              }
+                            }
+                          }
+                          
+                          // Always show settlement section if there are split expenses (even if amounts are 0)
+                          return InkWell(
+                            onTap: () => SettlementTrackerSheet.show(context, budget),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              margin: const EdgeInsets.only(top: 16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.3),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                  // You Owe
+                                  Expanded(
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.arrow_upward,
+                                              size: 14,
+                                              color: youOwe > 0 ? Colors.red[200] : Colors.white.withOpacity(0.5),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'You Owe',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.white.withOpacity(0.8),
+                          fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '\$${youOwe.toStringAsFixed(2)}',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: youOwe > 0 ? Colors.red[100] : Colors.white.withOpacity(0.6),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Divider
+                                  Container(
+                                    width: 1,
+                                    height: 30,
+                                    color: Colors.white.withOpacity(0.3),
+                                  ),
+                                  // Owed to You
+                                  Expanded(
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.arrow_downward,
+                                              size: 14,
+                                              color: owedToYou > 0 ? Colors.green[200] : Colors.white.withOpacity(0.5),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Owed to You',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.white.withOpacity(0.8),
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '\$${owedToYou.toStringAsFixed(2)}',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: owedToYou > 0 ? Colors.green[100] : Colors.white.withOpacity(0.6),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
                       // Share Code Button (Top Right)
                       Positioned(
                         top: 12,
@@ -1393,6 +1494,35 @@ class SharedBudgetDetailsPage extends StatelessWidget {
     bool isSplitEnabled = isEditing ? expenseToEdit.isSplit : false;
     Set<String> selectedMembers = isEditing ? expenseToEdit.splitWith.toSet() : {};
     
+    // Split type: 'equal' or 'custom'
+    String splitType = 'equal';
+    
+    // Custom split amounts: userId -> amount
+    Map<String, TextEditingController> customAmountControllers = {};
+    if (isEditing && expenseToEdit.isSplit) {
+      // Detect if this is a custom split (amounts not equal)
+      final equalAmount = expenseToEdit.amount / expenseToEdit.splitWith.length;
+      final isCustomSplit = expenseToEdit.splitAmounts.values.any(
+        (amount) => (amount - equalAmount).abs() > 0.01,
+      );
+      
+      if (isCustomSplit) {
+        splitType = 'custom';
+        for (final userId in expenseToEdit.splitWith) {
+          customAmountControllers[userId] = TextEditingController(
+            text: expenseToEdit.splitAmounts[userId]?.toStringAsFixed(2) ?? '0.00',
+          );
+        }
+      } else {
+        // Equal split - initialize controllers if switching to custom
+        for (final userId in expenseToEdit.splitWith) {
+          customAmountControllers[userId] = TextEditingController(
+            text: equalAmount.toStringAsFixed(2),
+          );
+        }
+      }
+    }
+    
     // Track if split settings have been modified (for warning when editing)
     bool splitModified = false;
     final originalIsSplit = isEditing ? expenseToEdit.isSplit : false;
@@ -1411,7 +1541,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
         builder: (context, setState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-           contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+           contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
           title: Text(isEditing ? 'Edit Expense' : 'Add Expense'),
            content: SizedBox(
              width: MediaQuery.of(context).size.width - 72, // Screen width minus padding and margins
@@ -1423,27 +1553,37 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                  child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: titleController,
-                decoration: InputDecoration(
-                  labelText: 'Expense Title',
-                  hintText: 'e.g., Dinner at Restaurant',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+              SizedBox(
+                height: 56,
+                child: TextField(
+                  controller: titleController,
+                  decoration: InputDecoration(
+                    labelText: 'Expense Title',
+                    hintText: 'e.g., Dinner at Restaurant',
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
+                  textCapitalization: TextCapitalization.words,
+                  style: const TextStyle(fontSize: 16),
                 ),
-                textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: 16),
-              TextField(
+              SizedBox(
+                height: 56,
+                child: TextField(
                 controller: amountController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Amount',
                   prefixText: '\$ ',
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
+                  ),
+                  style: const TextStyle(fontSize: 16),
                 ),
               ),
               const SizedBox(height: 16),
@@ -1508,7 +1648,8 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                   }
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  height: 56, // Match TextField height exactly
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(12),
@@ -1520,6 +1661,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
@@ -1555,71 +1697,162 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              TextField(
+              SizedBox(
+                height: 56,
+                child: TextField(
                 controller: descriptionController,
                 decoration: InputDecoration(
                   labelText: 'Description (Optional)',
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                maxLines: 2,
+                  style: const TextStyle(fontSize: 16),
+                ),
               ),
               
-              // SPLIT EXPENSE SECTION
-              const SizedBox(height: 20),
-              const Divider(),
-              const SizedBox(height: 12),
+              // SPLIT EXPENSE SECTION - Perfectly Aligned
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
                 
-                // Split Toggle with beautiful design
-                Container(
-                  decoration: BoxDecoration(
-                    color: isSplitEnabled ? const Color(0xFF4facfe).withOpacity(0.08) : Colors.grey.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSplitEnabled ? const Color(0xFF4facfe).withOpacity(0.3) : Colors.grey.withOpacity(0.2),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: SwitchListTile(
-                    title: Row(
-                      children: [
-                        Icon(
-                          Icons.people_alt,
-                          color: isSplitEnabled ? const Color(0xFF4facfe) : Colors.grey[600],
-                          size: 22,
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Split Expense',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                                color: isSplitEnabled ? const Color(0xFF4facfe) : Colors.black87,
+                // Compact Split Toggle
+                InkWell(
+                  onTap: () async {
+                    if (!isSplitEnabled) {
+                      // Check if this is a modification during editing
+                      final isModifyingSplit = isEditing && !originalIsSplit;
+                      
+                      // Show appropriate warning
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          title: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
                               ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  isModifyingSplit ? 'Expense Will Be Recreated' : 'Important',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (isModifyingSplit) ...[
+                                const Text(
+                                  'Changing split settings will:',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                _buildWarningItem('Delete the current expense'),
+                                _buildWarningItem('Create a new expense with split enabled'),
+                                _buildWarningItem('Reset all settlement tracking'),
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'This prevents data corruption. All members will be notified of the change.',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ] else ...[
+                                const Text(
+                                  'Once you enable split expense, you cannot change split settings later.',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'You can still edit amount, title, category, and description.',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Cancel'),
                             ),
-                            Text(
-                              isSplitEnabled ? 'Equally among selected members' : 'Tap to enable',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isModifyingSplit ? Colors.orange : const Color(0xFF4facfe),
+                                foregroundColor: Colors.white,
                               ),
+                              child: Text(isModifyingSplit ? 'Continue' : 'I Understand'),
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                    value: isSplitEnabled,
-                    activeColor: const Color(0xFF4facfe),
-                    onChanged: (value) async {
-                      if (value) {
-                        // Check if this is a modification during editing
-                        final isModifyingSplit = isEditing && !originalIsSplit;
-                        
-                        // Show appropriate warning
+                      );
+                      
+                      if (confirmed == true) {
+                        setState(() {
+                          isSplitEnabled = true;
+                          selectedMembers = budget.members.map((m) => m.userId).toSet();
+                          if (isModifyingSplit) splitModified = true;
+                        });
+                      }
+                    } else {
+                      // Disabling split
+                      if (isEditing && originalIsSplit) {
                         final confirmed = await showDialog<bool>(
                           context: context,
                           builder: (context) => AlertDialog(
@@ -1635,10 +1868,10 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                   child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
                                 ),
                                 const SizedBox(width: 12),
-                                Expanded(
+                                const Expanded(
                                   child: Text(
-                                    isModifyingSplit ? 'Expense Will Be Recreated' : 'Important',
-                                    style: const TextStyle(
+                                    'Expense Will Be Recreated',
+                                    style: TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -1646,79 +1879,26 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            content: Column(
+                            content: const Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (isModifyingSplit) ...[
-                                  const Text(
-                                    'Changing split settings will:',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
+                                Text(
+                                  'Disabling split will delete the current expense and create a new one without split.',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    height: 1.4,
                                   ),
-                                  const SizedBox(height: 12),
-                                  _buildWarningItem('Delete the current expense'),
-                                  _buildWarningItem('Create a new expense with split enabled'),
-                                  _buildWarningItem('Reset all settlement tracking'),
-                                  const SizedBox(height: 16),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
-                                        const SizedBox(width: 8),
-                                        const Expanded(
-                                          child: Text(
-                                            'This prevents data corruption. All members will be notified of the change.',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black87,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  'All settlement tracking will be lost.',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.red,
                                   ),
-                                ] else ...[
-                                  const Text(
-                                    'Once you enable split expense, you cannot change split settings later.',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
-                                        const SizedBox(width: 8),
-                                        const Expanded(
-                                          child: Text(
-                                            'You can still edit amount, title, category, and description.',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black87,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ],
                             ),
                             actions: [
@@ -1729,10 +1909,10 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                               ElevatedButton(
                                 onPressed: () => Navigator.pop(context, true),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: isModifyingSplit ? Colors.orange : const Color(0xFF4facfe),
+                                  backgroundColor: Colors.orange,
                                   foregroundColor: Colors.white,
                                 ),
-                                child: Text(isModifyingSplit ? 'Continue' : 'I Understand'),
+                                child: const Text('Continue'),
                               ),
                             ],
                           ),
@@ -1740,108 +1920,183 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                         
                         if (confirmed == true) {
                           setState(() {
-                            isSplitEnabled = true;
-                            // Auto-select all members when enabling split
-                            selectedMembers = budget.members.map((m) => m.userId).toSet();
-                            if (isModifyingSplit) splitModified = true;
+                            isSplitEnabled = false;
+                            selectedMembers.clear();
+                            splitModified = true;
                           });
                         }
                       } else {
-                        // Disabling split - check if we're modifying existing split
-                        if (isEditing && originalIsSplit) {
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                              title: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  const Expanded(
-                                    child: Text(
-                                      'Expense Will Be Recreated',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              content: const Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Disabling split will delete the current expense and create a new one without split.',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    'All settlement tracking will be lost.',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.red,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.orange,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  child: const Text('Continue'),
-                                ),
-                              ],
-                            ),
-                          );
-                          
-                          if (confirmed == true) {
-                            setState(() {
-                              isSplitEnabled = false;
-                              selectedMembers.clear();
-                              splitModified = true;
-                            });
-                          }
-                        } else {
-                          setState(() {
-                            isSplitEnabled = false;
-                            selectedMembers.clear();
-                          });
-                        }
+                        setState(() {
+                          isSplitEnabled = false;
+                          selectedMembers.clear();
+                        });
                       }
-                    },
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 56, // Match exact height of other input fields
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: isSplitEnabled ? const Color(0xFF4facfe).withOpacity(0.08) : Colors.grey.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSplitEnabled ? const Color(0xFF4facfe).withOpacity(0.3) : Colors.grey.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.people_alt,
+                          color: isSplitEnabled ? const Color(0xFF4facfe) : Colors.grey[600],
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Split Expense',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              color: isSplitEnabled ? const Color(0xFF4facfe) : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        Switch(
+                          value: isSplitEnabled,
+                          activeColor: const Color(0xFF4facfe),
+                          onChanged: (value) async {
+                            if (value) {
+                              final isModifyingSplit = isEditing && !originalIsSplit;
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  title: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          isModifyingSplit ? 'Expense Will Be Recreated' : 'Important',
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (isModifyingSplit) ...[
+                                        const Text(
+                                          'Changing split settings will delete and recreate the expense.',
+                                          style: TextStyle(fontSize: 14, height: 1.4),
+                                        ),
+                                      ] else ...[
+                                        const Text(
+                                          'Once enabled, split settings cannot be changed later.',
+                                          style: TextStyle(fontSize: 14, height: 1.4),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(context, true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isModifyingSplit ? Colors.orange : const Color(0xFF4facfe),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: Text(isModifyingSplit ? 'Continue' : 'I Understand'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              
+                              if (confirmed == true) {
+                                setState(() {
+                                  isSplitEnabled = true;
+                                  selectedMembers = budget.members.map((m) => m.userId).toSet();
+                                  if (isModifyingSplit) splitModified = true;
+                                });
+                              }
+                            } else {
+                              if (isEditing && originalIsSplit) {
+                                final confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    title: const Text('Expense Will Be Recreated'),
+                                    content: const Text(
+                                      'Disabling split will delete the current expense and create a new one. All settlement tracking will be lost.',
+                                      style: TextStyle(fontSize: 14, height: 1.4),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(context, true),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.orange,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        child: const Text('Continue'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                
+                                if (confirmed == true) {
+                                  setState(() {
+                                    isSplitEnabled = false;
+                                    selectedMembers.clear();
+                                    splitModified = true;
+                                  });
+                                }
+                              } else {
+                                setState(() {
+                                  isSplitEnabled = false;
+                                  selectedMembers.clear();
+                                });
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               
-              // Member Selection (shown when split is enabled)
+              // Member Selection (shown when split is enabled) - Compact Design
               if (isSplitEnabled) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4facfe).withOpacity(0.03),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF4facfe).withOpacity(0.2)),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF4facfe).withOpacity(0.2),
+                      width: 1,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1854,13 +2109,13 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                             'Split with:',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              fontSize: 11,
+                              fontSize: 12,
                               color: Colors.grey[700],
                             ),
                           ),
                           if (selectedMembers.isNotEmpty)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF4facfe).withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(8),
@@ -1868,7 +2123,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                               child: Text(
                                 '${selectedMembers.length}',
                                 style: const TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF4facfe),
                                 ),
@@ -1876,10 +2131,10 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxHeight: MediaQuery.of(context).size.height * 0.18,
+                          maxHeight: MediaQuery.of(context).size.height * 0.15,
                         ),
                         child: SingleChildScrollView(
                           child: Column(
@@ -1887,7 +2142,15 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                             children: budget.members.map((member) {
                         final isSelected = selectedMembers.contains(member.userId);
                         final amount = double.tryParse(amountController.text) ?? 0.0;
-                        final shareAmount = selectedMembers.isNotEmpty ? amount / selectedMembers.length : 0.0;
+                        // Calculate share based on split type
+                        double shareAmount = 0.0;
+                        if (isSelected && selectedMembers.isNotEmpty) {
+                          if (splitType == 'custom' && customAmountControllers.containsKey(member.userId)) {
+                            shareAmount = double.tryParse(customAmountControllers[member.userId]!.text) ?? 0.0;
+                          } else {
+                            shareAmount = amount / selectedMembers.length;
+                          }
+                        }
                         
                         return InkWell(
                           onTap: () async {
@@ -1953,23 +2216,33 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                   splitModified = true;
                                 });
                               }
-                            } else {
+                              } else {
                               setState(() {
                                 if (isSelected) {
                                   selectedMembers.remove(member.userId);
+                                  // Remove controller when deselected
+                                  customAmountControllers.remove(member.userId);
                                 } else {
                                   selectedMembers.add(member.userId);
+                                  // Initialize controller with equal share
+                                  final totalAmount = double.tryParse(amountController.text) ?? 0.0;
+                                  final equalShare = selectedMembers.isNotEmpty 
+                                      ? totalAmount / (selectedMembers.length + 1) 
+                                      : 0.0;
+                                  customAmountControllers[member.userId] = TextEditingController(
+                                    text: equalShare.toStringAsFixed(2),
+                                  );
                                 }
                               });
                             }
                           },
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(8),
                           child: Container(
-                            margin: const EdgeInsets.only(bottom: 3),
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                            margin: const EdgeInsets.only(bottom: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                             decoration: BoxDecoration(
                               color: isSelected ? const Color(0xFF4facfe).withOpacity(0.08) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: isSelected ? const Color(0xFF4facfe).withOpacity(0.3) : Colors.transparent,
                                 width: 1,
@@ -1998,7 +2271,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                // Avatar - smaller
+                                // Avatar
                                 Container(
                                   width: 24,
                                   height: 24,
@@ -2024,7 +2297,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                     member.name + (isSelected && shareAmount > 0 ? ' • \$${shareAmount.toStringAsFixed(2)}' : ''),
                                     style: TextStyle(
                                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                      fontSize: 12,
+                                      fontSize: 13,
                                       color: isSelected ? const Color(0xFF4facfe) : Colors.black87,
                                     ),
                                     maxLines: 1,
@@ -2042,6 +2315,356 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                     ],
                   ),
                 ),
+                
+                // Split Type Selector - Creative Compact Design
+                if (isSplitEnabled && selectedMembers.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  // Modern Segmented Control Style
+                  Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        // Equal Split
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                splitType = 'equal';
+                                final totalAmount = double.tryParse(amountController.text) ?? 0.0;
+                                final equalShare = totalAmount / selectedMembers.length;
+                                for (final userId in selectedMembers) {
+                                  customAmountControllers[userId]?.text = equalShare.toStringAsFixed(2);
+                                }
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: splitType == 'equal' 
+                                    ? const Color(0xFF4facfe) 
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: splitType == 'equal' ? [
+                                  BoxShadow(
+                                    color: const Color(0xFF4facfe).withOpacity(0.3),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ] : null,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.equalizer,
+                                    size: 16,
+                                    color: splitType == 'equal' 
+                                        ? Colors.white 
+                                        : Colors.grey[600],
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Equal',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: splitType == 'equal' 
+                                          ? FontWeight.bold 
+                                          : FontWeight.w500,
+                                      color: splitType == 'equal' 
+                                          ? Colors.white 
+                                          : Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Custom Split
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                splitType = 'custom';
+                                final totalAmount = double.tryParse(amountController.text) ?? 0.0;
+                                final equalShare = totalAmount / selectedMembers.length;
+                                for (final userId in selectedMembers) {
+                                  if (!customAmountControllers.containsKey(userId)) {
+                                    customAmountControllers[userId] = TextEditingController(
+                                      text: equalShare.toStringAsFixed(2),
+                                    );
+                                  }
+                                }
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: splitType == 'custom' 
+                                    ? const Color(0xFF4facfe) 
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: splitType == 'custom' ? [
+                                  BoxShadow(
+                                    color: const Color(0xFF4facfe).withOpacity(0.3),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ] : null,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.tune,
+                                    size: 16,
+                                    color: splitType == 'custom' 
+                                        ? Colors.white 
+                                        : Colors.grey[600],
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Custom',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: splitType == 'custom' 
+                                          ? FontWeight.bold 
+                                          : FontWeight.w500,
+                                      color: splitType == 'custom' 
+                                          ? Colors.white 
+                                          : Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                
+                // Custom Amount Inputs (shown when custom split is selected)
+                if (isSplitEnabled && splitType == 'custom' && selectedMembers.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.orange.withOpacity(0.2)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 14, color: Colors.orange[700]),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Enter custom amounts for each person:',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                                color: Colors.orange[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Builder(
+                          builder: (context) {
+                            final totalAmount = double.tryParse(amountController.text) ?? 0.0;
+                            double totalCustom = 0.0;
+                            
+                            // Calculate total custom amounts
+                            for (final userId in selectedMembers) {
+                              final controller = customAmountControllers[userId];
+                              if (controller != null) {
+                                totalCustom += double.tryParse(controller.text) ?? 0.0;
+                              }
+                            }
+                            
+                            final difference = totalAmount - totalCustom;
+                            final isBalanced = (difference.abs() < 0.01);
+                            
+                            return Column(
+                              children: [
+                                // Custom amount inputs
+                                ...selectedMembers.map((userId) {
+                                  final member = budget.members.firstWhere(
+                                    (m) => m.userId == userId,
+                                    orElse: () => BudgetMember(
+                                      userId: userId,
+                                      name: 'Unknown',
+                                      role: 'member',
+                                      joinedAt: DateTime.now(),
+                                    ),
+                                  );
+                                  
+                                  // Initialize controller if not exists
+                                  if (!customAmountControllers.containsKey(userId)) {
+                                    final equalShare = totalAmount / selectedMembers.length;
+                                    customAmountControllers[userId] = TextEditingController(
+                                      text: equalShare.toStringAsFixed(2),
+                                    );
+                                  }
+                                  
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Row(
+                                      children: [
+                                        // Avatar
+                                        Container(
+                                          width: 28,
+                                          height: 28,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: _getAvatarColor(member.name),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Name
+                                        SizedBox(
+                                          width: 80,
+                                          child: Text(
+                                            member.name,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Amount input
+                                        Expanded(
+                                          child: SizedBox(
+                                            height: 36,
+                                            child: TextField(
+                                              controller: customAmountControllers[userId],
+                                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                              style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                                                prefixText: '\$ ',
+                                                hintText: '0.00',
+                                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  border: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  borderSide: BorderSide(
+                                                    color: isBalanced ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+                                                  ),
+                                                ),
+                                                enabledBorder: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  borderSide: BorderSide(
+                                                    color: isBalanced ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+                                                  ),
+                                                ),
+                                                focusedBorder: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  borderSide: BorderSide(
+                                                    color: isBalanced ? Colors.green : const Color(0xFF4facfe),
+                                                  ),
+                                                ),
+                                              ),
+                                              onChanged: (_) => setState(() {}),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                                
+                                // Balance indicator
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: isBalanced 
+                                        ? Colors.green.withOpacity(0.1)
+                                        : Colors.red.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isBalanced 
+                                          ? Colors.green.withOpacity(0.3)
+                                          : Colors.red.withOpacity(0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'Total Split:',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: isBalanced ? Colors.green[700] : Colors.red[700],
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            '\$${totalCustom.toStringAsFixed(2)}',
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: isBalanced ? Colors.green[700] : Colors.red[700],
+                                            ),
+                                          ),
+                                          if (!isBalanced) ...[
+                                            const SizedBox(width: 8),
+                                            Icon(
+                                              difference > 0 ? Icons.arrow_downward : Icons.arrow_upward,
+                                              size: 14,
+                                              color: Colors.red[700],
+                                            ),
+                                            Text(
+                                              '\$${difference.abs().toStringAsFixed(2)}',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.red[700],
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ] else ...[
+                                            const SizedBox(width: 8),
+                                            Icon(Icons.check_circle, size: 16, color: Colors.green[700]),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
             ],
           ],
           ),
@@ -2079,6 +2702,52 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                   return;
                 }
 
+                // Validate custom split amounts (if custom split is enabled)
+                Map<String, double>? customSplitAmounts;
+                if (isSplitEnabled && splitType == 'custom') {
+                  double totalCustom = 0.0;
+                  customSplitAmounts = {};
+                  
+                  for (final userId in selectedMembers) {
+                    final controller = customAmountControllers[userId];
+                    if (controller == null || controller.text.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter amounts for all selected members')),
+                      );
+                      return;
+                    }
+                    
+                    final customAmount = double.tryParse(controller.text);
+                    if (customAmount == null || customAmount <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter valid amounts (greater than 0)')),
+                      );
+                      return;
+                    }
+                    
+                    customSplitAmounts[userId] = customAmount;
+                    totalCustom += customAmount;
+                  }
+                  
+                  // Validate total matches expense amount
+                  final difference = (amount - totalCustom).abs();
+                  if (difference > 0.01) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Custom split total (\$${totalCustom.toStringAsFixed(2)}) must equal expense amount (\$${amount.toStringAsFixed(2)})'
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                }
+
+                // Cleanup controllers before closing
+                for (final controller in customAmountControllers.values) {
+                  controller.dispose();
+                }
+
                 Navigator.pop(context);
 
                 final bool success;
@@ -2093,13 +2762,14 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                   if (deleteSuccess) {
                     // Create new expense with updated split settings
                     success = await BudgetCollaborationService.addExpense(
-                      budgetId: budget.id,
-                      amount: amount,
+                  budgetId: budget.id,
+                  amount: amount,
                       category: selectedCategory!,
                       title: titleController.text.trim().isNotEmpty ? titleController.text.trim() : null,
                       description: descriptionController.text.trim().isNotEmpty ? descriptionController.text.trim() : null,
                       isSplit: isSplitEnabled,
                       splitWith: isSplitEnabled ? selectedMembers.toList() : null,
+                      customSplitAmounts: customSplitAmounts,
                     );
                   } else {
                     success = false;
@@ -2124,6 +2794,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                     description: descriptionController.text.trim().isNotEmpty ? descriptionController.text.trim() : null,
                     isSplit: isSplitEnabled,
                     splitWith: isSplitEnabled ? selectedMembers.toList() : null,
+                    customSplitAmounts: customSplitAmounts,
                   );
                 }
 
@@ -2169,6 +2840,289 @@ class SharedBudgetDetailsPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _markSettlementInDialog(
+    BuildContext context,
+    MemberExpense expense,
+    String userId,
+    String memberName,
+    double share,
+    bool isExpenseOwner,
+  ) async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    // Get current paid amount and remaining
+    final paidAmount = expense.getPaidAmount(userId);
+    final remaining = expense.getRemainingAmount(userId);
+
+    // Create amount controller with remaining amount as default
+    final amountController = TextEditingController(
+      text: remaining.toStringAsFixed(2),
+    );
+
+    // Show payment dialog with amount input
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          final enteredAmount = double.tryParse(amountController.text) ?? 0.0;
+          final isValid = enteredAmount > 0 && enteredAmount <= remaining + 0.01;
+          final isFullPayment = (enteredAmount - remaining).abs() < 0.01;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.payment, color: Colors.green, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    isFullPayment ? 'Mark as Paid' : 'Record Payment',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isExpenseOwner
+                        ? 'Record payment from ${memberName}:'
+                        : 'Record your payment to ${expense.userName}:',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Payment amount input
+                  TextField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Payment Amount',
+                      prefixText: '\$ ',
+                      hintText: '0.00',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          amountController.clear();
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  // Payment summary
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.blue.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total Owed:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            Text(
+                              '\$${share.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (paidAmount > 0) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Already Paid:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                              Text(
+                                '\$${paidAmount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.green[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Remaining:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            Text(
+                              '\$${remaining.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: remaining > 0 ? Colors.orange[700] : Colors.green[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isValid && !isFullPayment) ...[
+                          const SizedBox(height: 8),
+                          Divider(color: Colors.blue.withOpacity(0.3)),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'After Payment:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blue[700],
+                                ),
+                              ),
+                              Text(
+                                '\$${(remaining - enteredAmount).toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (!isValid && amountController.text.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      enteredAmount > remaining
+                          ? 'Amount cannot exceed remaining balance'
+                          : 'Please enter a valid amount',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red[700],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, null),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isValid
+                    ? () => Navigator.pop(context, {
+                          'amount': enteredAmount,
+                          'fullPayment': isFullPayment,
+                        })
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey,
+                ),
+                child: Text(isFullPayment ? 'Mark Paid' : 'Record Payment'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result == null) return;
+
+    final paymentAmount = result['amount'] as double;
+    final isFullPayment = result['fullPayment'] as bool;
+
+    // Mark settlement with payment amount
+    final success = await BudgetCollaborationService.markSettlement(
+      budgetId: budget.id,
+      expenseId: expense.id,
+      userId: userId,
+      settled: isFullPayment,
+      paymentAmount: paymentAmount,
+    );
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                success ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              Text(success ? 'Marked as paid!' : 'Failed to update settlement'),
+            ],
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+
+      // Close and reopen dialog to refresh settlement status
+      if (success) {
+        Navigator.pop(context);
+        // Small delay to ensure data is updated
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (context.mounted) {
+          _showExpenseDetailsDialog(context, expense);
+        }
+      }
+    }
   }
 
   void _showExpenseDetailsDialog(BuildContext context, MemberExpense expense) {
@@ -2352,7 +3306,10 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                           ),
                         );
                         final share = expense.getShareForUser(userId);
-                        final isSettled = expense.hasUserSettled(userId);
+                        final paidAmount = expense.getPaidAmount(userId);
+                        final remaining = expense.getRemainingAmount(userId);
+                        final isFullyPaid = expense.isUserFullyPaid(userId);
+                        final hasPartialPayment = paidAmount > 0 && remaining > 0;
                         
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -2388,43 +3345,124 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    Text(
-                                      '\$${share.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[600],
+                                    if (hasPartialPayment) ...[
+                                      Text(
+                                        'Paid: \$${paidAmount.toStringAsFixed(2)} / \$${share.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.green[700],
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
-                                    ),
+                                      Text(
+                                        'Remaining: \$${remaining.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.orange[700],
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      Text(
+                                        '\$${share.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: isSettled 
-                                      ? Colors.green.withOpacity(0.1)
-                                      : Colors.orange.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      isSettled ? Icons.check_circle : Icons.pending,
-                                      size: 12,
-                                      color: isSettled ? Colors.green : Colors.orange,
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: isFullyPaid 
+                                          ? Colors.green.withOpacity(0.1)
+                                          : Colors.orange.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      isSettled ? 'Paid' : 'Pending',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: isSettled ? Colors.green : Colors.orange,
-                                      ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          isFullyPaid ? Icons.check_circle : Icons.pending,
+                                          size: 12,
+                                          color: isFullyPaid ? Colors.green : Colors.orange,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          isFullyPaid ? 'Paid' : hasPartialPayment ? 'Partial' : 'Pending',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isFullyPaid ? Colors.green : Colors.orange,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Mark as Settled Button (only show if not fully paid and user can mark it)
+                                  if (!isFullyPaid) ...[
+                                    const SizedBox(width: 8),
+                                    Builder(
+                                      builder: (context) {
+                                        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                                        if (currentUserId == null) return const SizedBox.shrink();
+                                        
+                                        // Can mark if: current user is expense owner OR current user is the one who owes
+                                        final canMarkSettled = (isExpenseOwner && userId != currentUserId) ||
+                                                               (!isExpenseOwner && userId == currentUserId);
+                                        
+                                        if (!canMarkSettled) return const SizedBox.shrink();
+                                        
+                                        return InkWell(
+                                          onTap: () => _markSettlementInDialog(
+                                            context,
+                                            expense,
+                                            userId,
+                                            member.name,
+                                            share,
+                                            isExpenseOwner,
+                                          ),
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.green.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: Colors.green.withOpacity(0.3),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.check,
+                                                  size: 14,
+                                                  color: Colors.green[700],
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'Mark Paid',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.green[700],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
                                   ],
-                                ),
+                                ],
                               ),
                             ],
                           ),
@@ -3050,34 +4088,5 @@ class SharedBudgetDetailsPage extends StatelessWidget {
     );
   }
 
-  void _navigateToSettlementTracker(BuildContext context, List<MemberExpense> expenses) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SettlementTrackerPage(
-          budget: budget,
-          expenses: expenses,
-        ),
-      ),
-    );
-  }
-
-  int _getPendingSettlementsCount(List<MemberExpense> expenses) {
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUserId == null) return 0;
-
-    int count = 0;
-    for (final expense in expenses) {
-      if (!expense.isSplit || expense.splitWith.isEmpty) continue;
-
-      // Count if current user owes money (is in split but not the payer and not settled)
-      if (expense.userId != currentUserId && 
-          expense.splitWith.contains(currentUserId) &&
-          !expense.hasUserSettled(currentUserId)) {
-        count++;
-      }
-    }
-    return count;
-  }
 }
 

@@ -21,6 +21,7 @@ class LocalStorageService {
   static const String kHasCompletedCurrencySetup = 'hasCompletedCurrencySetup';
   static const String kHasCompletedOnboarding = 'hasCompletedOnboarding';
   static const String kMonthlyBudget = 'monthlyBudget';
+  static const String kShowSharedExpenses = 'showSharedExpenses';
 
   static Future<void> init() async {
     final dir = await getApplicationDocumentsDirectory();

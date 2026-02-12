@@ -18,7 +18,7 @@ class UsageTracker extends StatelessWidget {
     }
 
     final remaining = PremiumService.remainingFreeScans;
-    final total = 2; // Max free scans
+    const total = 2; // Max free scans
     final used = total - remaining;
     final progress = used / total;
 
@@ -222,10 +222,10 @@ class ScanLimitBanner extends StatelessWidget {
               size: 20,
             ),
             const SizedBox(width: 8),
-            Expanded(
+            const Expanded(
               child: Text(
                 'Upgrade to Pro for unlimited scans',
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

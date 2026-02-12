@@ -11,6 +11,24 @@ class OcrLine {
   OcrLine(this.text, {this.left, this.top, this.width, this.height});
 }
 
+class AmountCandidate {
+  final double amount;
+  final String? currency;
+  final double confidence;
+  final String method;
+  final int lineIndex;
+  final String originalText;
+
+  const AmountCandidate({
+    required this.amount,
+    required this.currency,
+    required this.confidence,
+    required this.method,
+    required this.lineIndex,
+    required this.originalText,
+  });
+}
+
 class OcrResult {
   final String rawText;
   final List<OcrLine> lines;
@@ -21,6 +39,7 @@ class OcrResult {
   final String? category;
   final List<Map<String, dynamic>> lineItems; // {'name', 'qty', 'price'}
   final Map<String, double> totalsBreakdown; // subtotal,tax,etc.
+  final List<AmountCandidate> totalCandidates;
 
   OcrResult({
     required this.rawText,
@@ -32,6 +51,7 @@ class OcrResult {
     this.category,
     this.lineItems = const [],
     this.totalsBreakdown = const {},
+    this.totalCandidates = const [],
   });
 }
 

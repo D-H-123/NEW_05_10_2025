@@ -20,7 +20,7 @@ class PremiumService {
   static bool _isTrialActive = false;
   static DateTime? _trialEndDate;
   static int _scanCount = 0;
-  static final int _maxFreeScans = 2;
+  static const int _maxFreeScans = 2;
   
   // Subscription tracking
   static String? _currentProductId;

@@ -16,31 +16,32 @@ import '../../../core/services/premium_service.dart';
 import '../../../core/widgets/subscription_paywall.dart';
 import '../../../core/services/subscription_utils.dart';
 import '../../../core/services/personal_subscription_reminder_service.dart';
-import '../../../core/widgets/filter_dropdown.dart';
 import '../../../core/widgets/subscription_badge.dart';
-import '../../../core/widgets/brand_icon_widget.dart';
-import '../../../core/widgets/category_chip_selector.dart';
+import '../../../core/widgets/cached_bill_image_provider.dart';
+import '../../../core/widgets/empty_state_widget.dart';
 import '../../home/dynamic_expense_modal.dart';
 import '../models/bill_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/services/budget_collaboration_service.dart';
+import '../../../core/theme/app_colors.dart';
 
 class BillsPage extends ConsumerStatefulWidget {
-  const BillsPage({super.key});
+  const BillsPage({super.key, this.initialCategoryId});
+
+  final String? initialCategoryId;
 
   @override
   ConsumerState<BillsPage> createState() => _BillsPageState();
 }
 
-class _BillsPageState extends ConsumerState<BillsPage> {
+class _BillsPageState extends ConsumerState<BillsPage> with AutomaticKeepAliveClientMixin {
   String _searchQuery = '';
   String _sortBy = 'date_desc'; // date_desc, date_asc, name_asc, name_desc, total_desc, total_asc
   String? _selectedYear;
   String? _selectedMonth;
   int _selectedIndex = 3; // Storage tab is selected
-  String _selectedCategory = 'all'; // all, manual, subscription, sepa, scanned
-  String _selectedLocation = 'all'; // all, or specific location
-  String _selectedSource = 'all'; // all, scanned, manual
+  final String _selectedCategory = 'all'; // all, manual, subscription, sepa, scanned
+  String _selectedSource = 'all'; // all, scanned, manual, subscription
   String _selectedCategoryFilter = 'all'; // all, or specific category
   List<String> _selectedCategories = []; // For multi-select categories
   
@@ -49,25 +50,153 @@ class _BillsPageState extends ConsumerState<BillsPage> {
   DateTime _selectedCalendarDate = DateTime.now();
   DateTime _currentCalendarMonth = DateTime.now();
   bool _isCalendarIntegrationEnabled = false;
-  bool _isLocationFilterEnabled = false;
   bool _showSharedExpenses = false;
+  
+  // ✅ Optimized: Pagination state
+  static const int _pageSize = 20;
+  int _currentPage = 0;
+  bool _hasMore = true;
+  final ScrollController _scrollController = ScrollController();
+  
+  // ✅ Performance: Cache filtered bills to avoid recalculating on every build
+  List<dynamic>? _cachedFilteredBills;
+  String? _cachedSearchQuery;
+  String? _cachedSource;
+  String? _cachedCategoryFilter;
+  List<String>? _cachedSelectedCategories;
+  int? _cachedBillsLength; // Track if bills list changed
 
   @override
   void initState() {
     super.initState();
     _isCalendarIntegrationEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
-    _isLocationFilterEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
     _showSharedExpenses = LocalStorageService.getBoolSetting(LocalStorageService.kShowSharedExpenses, defaultValue: false);
+    if (widget.initialCategoryId != null && widget.initialCategoryId!.isNotEmpty) {
+      _selectedCategoryFilter = widget.initialCategoryId!;
+      _selectedCategories = [widget.initialCategoryId!];
+    }
+    // ✅ Optimized: Setup pagination scroll listener
+    _scrollController.addListener(_onScroll);
+  }
+  
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+  
+  // ✅ Optimized: Reset pagination when filters change
+  void _resetPagination() {
+    setState(() {
+      _currentPage = 0;
+      _hasMore = true;
+      // ✅ Performance: Clear cache when filters change
+      _cachedFilteredBills = null;
+    });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Refresh settings when returning to this page
-    _isCalendarIntegrationEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kCalendarResults);
-    _isLocationFilterEnabled = LocalStorageService.getBoolSetting(LocalStorageService.kLocation);
-    _showSharedExpenses = LocalStorageService.getBoolSetting(LocalStorageService.kShowSharedExpenses, defaultValue: false);
+  /// Clear all filters: Source → All, Year/Month → none, Categories → none.
+  void _clearAllFilters() {
+    setState(() {
+      _selectedSource = 'all';
+      _selectedYear = null;
+      _selectedMonth = null;
+      _selectedCategories = [];
+      _selectedCategoryFilter = 'all';
+      _currentPage = 0;
+      _hasMore = true;
+      _cachedFilteredBills = null;
+    });
   }
+
+  // ✅ Optimized: Handle scroll for pagination
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
+      _loadMoreBills();
+    }
+  }
+  
+  // ✅ Optimized: Load more bills for pagination
+  void _loadMoreBills() {
+    if (!_hasMore) return;
+    
+    setState(() {
+      _currentPage++;
+      final allFilteredBills = _getAllFilteredBills();
+      final totalItems = allFilteredBills.length;
+      final displayedItems = (_currentPage + 1) * _pageSize;
+      
+      if (displayedItems >= totalItems) {
+        _hasMore = false;
+      }
+    });
+  }
+  
+  // ✅ Optimized: Get paginated bills
+  List<dynamic> _getPaginatedBills(List<dynamic> filteredBills) {
+    final endIndex = ((_currentPage + 1) * _pageSize).clamp(0, filteredBills.length);
+    return filteredBills.sublist(0, endIndex);
+  }
+  
+  // ✅ Optimized: Get all filtered bills (without pagination for grouping)
+  List<dynamic> _getAllFilteredBills() {
+    final bills = ref.read(billProvider);
+    
+    // ✅ Performance: Return cached result if filters and bills list haven't changed
+    if (_cachedFilteredBills != null &&
+        _cachedBillsLength == bills.length &&
+        _cachedSearchQuery == _searchQuery &&
+        _cachedSource == _selectedSource &&
+        _cachedCategoryFilter == _selectedCategoryFilter &&
+        _listEquals(_cachedSelectedCategories, _selectedCategories)) {
+      return _cachedFilteredBills!;
+    }
+    final filtered = bills.where((bill) {
+      if (_selectedSource != 'all') {
+        final billSource = _getBillCategory(bill);
+        if (billSource != _selectedSource) return false;
+      }
+      
+      if (_selectedCategoryFilter != 'all') {
+        final billCategory = bill.categoryId?.toLowerCase() ?? '';
+        if (_selectedCategories.isNotEmpty) {
+          if (!_selectedCategories.any((cat) => cat.toLowerCase() == billCategory)) return false;
+        } else {
+          if (billCategory != _selectedCategoryFilter.toLowerCase()) return false;
+        }
+      }
+      
+      final query = _searchQuery.toLowerCase();
+      return ((bill.title ?? bill.vendor)?.toLowerCase().contains(query) ?? false) ||
+              (bill.tags?.any((tag) => tag.toLowerCase().contains(query)) ?? false);
+    }).toList();
+    
+    // ✅ Performance: Cache the result
+    _cachedFilteredBills = filtered;
+    _cachedBillsLength = bills.length;
+    _cachedSearchQuery = _searchQuery;
+    _cachedSource = _selectedSource;
+    _cachedCategoryFilter = _selectedCategoryFilter;
+    _cachedSelectedCategories = List<String>.from(_selectedCategories);
+    
+    return filtered;
+  }
+  
+  // ✅ Performance: Helper to compare lists
+  bool _listEquals<T>(List<T>? a, List<T>? b) {
+    if (a == null) return b == null;
+    if (b == null || a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  // ✅ Performance: Remove expensive operations from didChangeDependencies
+  // Settings are already loaded in initState and don't need to be refreshed on every navigation
+
+  @override
+  bool get wantKeepAlive => true; // ✅ Performance: Preserve page state during navigation
 
   void _showBillOptions(BuildContext context, dynamic bill) {
     showModalBottomSheet(
@@ -537,9 +666,9 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                 pw.Container(
                   width: double.infinity,
                   padding: const pw.EdgeInsets.all(20),
-                  decoration: pw.BoxDecoration(
+                  decoration: const pw.BoxDecoration(
                     color: PdfColors.blue,
-                    borderRadius: const pw.BorderRadius.only(
+                    borderRadius: pw.BorderRadius.only(
                       bottomLeft: pw.Radius.circular(10),
                       bottomRight: pw.Radius.circular(10),
                     ),
@@ -617,7 +746,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                 pw.Center(
                   child: pw.Text(
                     'Generated on ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}',
-                    style: pw.TextStyle(
+                    style: const pw.TextStyle(
                       fontSize: 10,
                       color: PdfColors.grey,
                     ),
@@ -739,17 +868,20 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
 
 
   String _getBillCategory(dynamic bill) {
-    // Manual entries from plus button have ocrText = 'Manual entry'
-    // Subscription entries have ocrText = 'Subscription entry'
-    // Scanned receipts from camera have actual OCR text content (not 'Manual entry' or 'Subscription entry')
-    if (bill.ocrText == 'Manual entry' || bill.ocrText == 'Subscription entry') {
-      return 'manual'; // Created via plus button form or subscription
-    } else if (bill.ocrText != null && bill.ocrText.isNotEmpty && 
-               bill.ocrText != 'Manual entry' && bill.ocrText != 'Subscription entry') {
-      return 'scanned'; // Has actual OCR text from camera scanning
-    } else {
-      return 'manual'; // Fallback for any other cases
+    // Subscription = recurring (subscriptionType set or ocrText 'Subscription entry')
+    // Manual = one-off manual entries only (ocrText 'Manual entry', not subscription)
+    // Scanned = from camera with OCR text
+    if (bill.subscriptionType != null || bill.ocrText == 'Subscription entry') {
+      return 'subscription';
     }
+    if (bill.ocrText == 'Manual entry') {
+      return 'manual';
+    }
+    if (bill.ocrText != null && bill.ocrText.isNotEmpty &&
+        bill.ocrText != 'Manual entry' && bill.ocrText != 'Subscription entry') {
+      return 'scanned';
+    }
+    return 'manual'; // Fallback
   }
 
   /// Format date to show "Today", "Yesterday", or relative time
@@ -765,7 +897,7 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     return DateFormat('MMM dd, yyyy').format(date);
   }
 
-  /// Check if we should show brand icon instead of image
+  /// Check if we should show brand icon instead of image (manual/subscription = no receipt image)
   bool _shouldShowBrandIcon(dynamic bill) {
     return bill.ocrText == 'Manual entry' || bill.ocrText == 'Subscription entry';
   }
@@ -775,21 +907,74 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     return (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown';
   }
 
-  List<String> _getUniqueLocations(List<dynamic> bills) {
-    final locations = <String>{};
-    for (final bill in bills) {
-      if (bill.location != null && bill.location!.isNotEmpty) {
-        locations.add(bill.location!);
-      }
-    }
-    return locations.toList()..sort();
+  /// Category for thumbnail/display (categoryId or first tag, else 'Other')
+  String _getBillCategoryForDisplay(dynamic bill) {
+    if (bill.categoryId != null && bill.categoryId!.isNotEmpty) return bill.categoryId!;
+    if (bill.tags != null && bill.tags!.isNotEmpty) return bill.tags!.first;
+    return 'Other';
   }
 
-  int _getLocationCount(List<dynamic> bills, String location) {
-    if (location == 'all') return bills.length;
-    return bills.where((bill) => 
-      bill.location?.toLowerCase() == location.toLowerCase()
-    ).length;
+  /// Search bar widget (used inside scroll content so it scrolls with list).
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: TextField(
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value;
+            _resetPagination();
+          });
+        },
+        decoration: InputDecoration(
+          hintText: 'Search receipts...',
+          prefixIcon: const Icon(Icons.search),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          filled: true,
+          fillColor: Colors.grey[100],
+        ),
+      ),
+    );
+  }
+
+  /// Small "SUB" label box for subscription receipts (category color, top-right).
+  Widget _buildSubLabelBox(dynamic bill) {
+    final category = _getBillCategoryForDisplay(bill);
+    final color = _getCategoryColor(category);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        'SUB',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  /// Thumbnail for manual/subscription receipts: category icon with category color (no first letter).
+  Widget _buildCategoryThumbnail(dynamic bill, {double size = 50}) {
+    final category = _getBillCategoryForDisplay(bill);
+    final color = _getCategoryColor(category);
+    final iconData = _getCategoryIcon(category);
+    return Center(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(iconData, size: size * 0.5, color: color),
+      ),
+    );
   }
 
   List<String> _getUniqueCategories(List<dynamic> bills) {
@@ -823,227 +1008,184 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     return CategoryService.getCategoryIcon(category);
   }
 
-  // Filter item builders for new dropdown
-  List<FilterItem> _buildSourceFilterItems(List<dynamic> filteredBills) {
-    return [
-      FilterItem(
-        value: 'all',
-        label: 'All Sources',
-        icon: Icons.all_inclusive,
-        count: _getSourceCount(filteredBills, 'all'),
+  // App primary dark blue for filter selection (matches app theme)
+  static Color get _filterPillSelectedBg => AppColors.bottomNavBackground;
+  static const Color _filterPillUnselectedBg = Color(0xFFE5E7EB); // grey[200]
+  static const Color _filterPillUnselectedText = Color(0xFF374151); // grey[800]
+  static const Color _filterSectionLabel = Color(0xFF374151);
+
+  Widget _buildFilterPill({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        margin: const EdgeInsets.only(right: 8, bottom: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? _filterPillSelectedBg : _filterPillUnselectedBg,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : _filterPillUnselectedText,
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+          ),
+        ),
       ),
-      FilterItem(
-        value: 'scanned',
-        label: 'Scanned',
-        icon: Icons.camera_alt,
-        count: _getSourceCount(filteredBills, 'scanned'),
-      ),
-      FilterItem(
-        value: 'manual',
-        label: 'Manual',
-        icon: Icons.edit_note,
-        count: _getSourceCount(filteredBills, 'manual'),
-      ),
-    ];
+    );
   }
 
-  List<FilterItem> _buildLocationFilterItems(List<dynamic> filteredBills) {
-    final items = <FilterItem>[
-      FilterItem(
-        value: 'all',
-        label: 'All Locations',
-        icon: Icons.all_inclusive,
-        count: _getLocationCount(filteredBills, 'all'),
+  Widget _buildFilterSectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: _filterSectionLabel,
+          fontSize: 14,
+        ),
       ),
-    ];
-
-    // Add unique locations
-    for (final location in _getUniqueLocations(filteredBills)) {
-      items.add(FilterItem(
-        value: location,
-        label: location,
-        icon: Icons.location_on,
-        count: _getLocationCount(filteredBills, location),
-      ));
-    }
-
-    return items;
+    );
   }
 
+  /// Horizontal scrollable row of pills (touch scroll, no buttons).
+  Widget _buildHorizontalPillRow(List<Widget> pills) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(right: 16),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: pills,
+      ),
+    );
+  }
 
-  // Responsive Filter Layout
-  Widget _buildResponsiveFilterLayout(BuildContext context, List<dynamic> allBills, List<dynamic> filteredBills) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final spacing = screenWidth < 360 ? 8.0 : 12.0;
-    
-    // Get ALL available categories from all bills (not just filtered ones)
-    // This ensures all categories remain visible even after selecting some
+  /// Single container filter UI: Source, Year, Month, Categories as pill rows (Figma-style).
+  Widget _buildFilterCardContent(
+    BuildContext context,
+    List<dynamic> allBills,
+    Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills,
+    List<String> sortedYears,
+  ) {
     final uniqueCategories = _getUniqueCategories(allBills);
-    
-    // But get counts from filtered bills for accurate counts
-    final categoryCounts = <String, int>{};
-    for (final category in uniqueCategories) {
-      categoryCounts[category] = _getCategoryCount(allBills, category);
+    List<String> monthsForSelectedYear = <String>[];
+    if (_selectedYear != null && groupedBills.containsKey(_selectedYear)) {
+      monthsForSelectedYear = groupedBills[_selectedYear]!.keys.toList();
+      monthsForSelectedYear.sort((a, b) {
+        final da = DateFormat('MMMM yyyy').parse(a);
+        final db = DateFormat('MMMM yyyy').parse(b);
+        return db.compareTo(da); // descending: newest month first
+      });
     }
-    
-    // Check if location filter is enabled
-    if (_isLocationFilterEnabled) {
-      // Use column layout when location is enabled
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // First row: Source and Location dropdowns
-          Row(
-            children: [
-              Expanded(
-                child: FilterDropdown(
-                  selectedValue: _selectedSource,
-                  items: _buildSourceFilterItems(allBills),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedSource = value ?? 'all';
-                    });
-                  },
-                  label: 'Source',
-                  icon: Icons.source,
-                  showIcons: true,
-                  showColors: false,
-                ),
-              ),
-              SizedBox(width: spacing),
-              Expanded(
-                child: FilterDropdown(
-                  selectedValue: _selectedLocation,
-                  items: _buildLocationFilterItems(allBills),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedLocation = value ?? 'all';
-                    });
-                  },
-                  label: 'Location',
-                  icon: Icons.location_on,
-                  showIcons: true,
-                  showColors: false,
-                ),
-              ),
-            ],
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Source
+        _buildFilterSectionLabel('Source'),
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _buildFilterPill(
+              label: 'All',
+              isSelected: _selectedSource == 'all',
+              onTap: () => setState(() => _selectedSource = 'all'),
+            ),
+            _buildFilterPill(
+              label: 'Scanned',
+              isSelected: _selectedSource == 'scanned',
+              onTap: () => setState(() => _selectedSource = 'scanned'),
+            ),
+            _buildFilterPill(
+              label: 'Manual',
+              isSelected: _selectedSource == 'manual',
+              onTap: () => setState(() => _selectedSource = 'manual'),
+            ),
+            _buildFilterPill(
+              label: 'Subscription',
+              isSelected: _selectedSource == 'subscription',
+              onTap: () => setState(() => _selectedSource = 'subscription'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Year — horizontal scroll
+        _buildFilterSectionLabel('Year'),
+        _buildHorizontalPillRow([
+          _buildFilterPill(
+            label: 'All Years',
+            isSelected: _selectedYear == null,
+            onTap: () => setState(() {
+              _selectedYear = null;
+              _selectedMonth = null;
+            }),
           ),
-          SizedBox(height: spacing),
-          // Category chips (compact horizontal scroll for small screens)
-          if (uniqueCategories.isNotEmpty)
-            screenWidth < 600
-                ? CategoryChipSelector(
-                    availableCategories: uniqueCategories,
-                    selectedCategories: _selectedCategories,
-                    onChanged: (values) {
-                      setState(() {
-                        _selectedCategories = values;
-                        // Update single select for backward compatibility
-                        if (_selectedCategories.isEmpty) {
-                          _selectedCategoryFilter = 'all';
-                        } else if (_selectedCategories.length == 1) {
-                          _selectedCategoryFilter = _selectedCategories.first;
-                        } else {
-                          _selectedCategoryFilter = 'multiple';
-                        }
-                      });
-                    },
-                    showCounts: true,
-                    categoryCounts: categoryCounts,
-                    isCompact: true,
-                    label: 'Filter by Category',
-                  )
-                : ExpandableCategoryChipSelector(
-                    availableCategories: uniqueCategories,
-                    selectedCategories: _selectedCategories,
-                    onChanged: (values) {
-                      setState(() {
-                        _selectedCategories = values;
-                        // Update single select for backward compatibility
-                        if (_selectedCategories.isEmpty) {
-                          _selectedCategoryFilter = 'all';
-                        } else if (_selectedCategories.length == 1) {
-                          _selectedCategoryFilter = _selectedCategories.first;
-                        } else {
-                          _selectedCategoryFilter = 'multiple';
-                        }
-                      });
-                    },
-                    showCounts: true,
-                    categoryCounts: categoryCounts,
-                    initialDisplayCount: 8,
-                    label: 'Filter by Category',
-                  ),
+          ...sortedYears.map((year) => _buildFilterPill(
+                label: year,
+                isSelected: _selectedYear == year,
+                onTap: () => setState(() {
+                  _selectedYear = year;
+                  _selectedMonth = null;
+                }),
+              )),
+        ]),
+        // Month — only when a specific year is selected
+        if (_selectedYear != null) ...[
+          const SizedBox(height: 16),
+          _buildFilterSectionLabel('Month'),
+          _buildHorizontalPillRow([
+            _buildFilterPill(
+              label: 'All Months',
+              isSelected: _selectedMonth == null,
+              onTap: () => setState(() => _selectedMonth = null),
+            ),
+            ...monthsForSelectedYear.map((month) {
+              final monthShort = DateFormat('MMM').format(DateFormat('MMMM yyyy').parse(month));
+              return _buildFilterPill(
+                label: monthShort,
+                isSelected: _selectedMonth == month,
+                onTap: () => setState(() {
+                  _selectedMonth = _selectedMonth == month ? null : month;
+                }),
+              );
+            }),
+          ]),
         ],
-      );
-    } else {
-      // Use layout without location when location is disabled
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Source dropdown
-          FilterDropdown(
-            selectedValue: _selectedSource,
-            items: _buildSourceFilterItems(allBills),
-            onChanged: (value) {
-              setState(() {
-                _selectedSource = value ?? 'all';
-              });
-            },
-            label: 'Source',
-            icon: Icons.source,
-            showIcons: true,
-            showColors: false,
-          ),
-          SizedBox(height: spacing),
-          // Category chips (compact horizontal scroll for small screens)
-          if (uniqueCategories.isNotEmpty)
-            screenWidth < 600
-                ? CategoryChipSelector(
-                    availableCategories: uniqueCategories,
-                    selectedCategories: _selectedCategories,
-                    onChanged: (values) {
-                      setState(() {
-                        _selectedCategories = values;
-                        // Update single select for backward compatibility
-                        if (_selectedCategories.isEmpty) {
-                          _selectedCategoryFilter = 'all';
-                        } else if (_selectedCategories.length == 1) {
-                          _selectedCategoryFilter = _selectedCategories.first;
-                        } else {
-                          _selectedCategoryFilter = 'multiple';
-                        }
-                      });
-                    },
-                    showCounts: true,
-                    categoryCounts: categoryCounts,
-                    isCompact: true,
-                    label: 'Filter by Category',
-                  )
-                : ExpandableCategoryChipSelector(
-                    availableCategories: uniqueCategories,
-                    selectedCategories: _selectedCategories,
-                    onChanged: (values) {
-                      setState(() {
-                        _selectedCategories = values;
-                        // Update single select for backward compatibility
-                        if (_selectedCategories.isEmpty) {
-                          _selectedCategoryFilter = 'all';
-                        } else if (_selectedCategories.length == 1) {
-                          _selectedCategoryFilter = _selectedCategories.first;
-                        } else {
-                          _selectedCategoryFilter = 'multiple';
-                        }
-                      });
-                    },
-                    showCounts: true,
-                    categoryCounts: categoryCounts,
-                    initialDisplayCount: 8,
-                    label: 'Filter by Category',
-                  ),
-        ],
-      );
-    }
+        const SizedBox(height: 16),
+        // Categories — horizontal scroll
+        _buildFilterSectionLabel('Categories'),
+        _buildHorizontalPillRow(
+          uniqueCategories.map((category) {
+            final isSelected = _selectedCategories.contains(category);
+            return _buildFilterPill(
+              label: category,
+              isSelected: isSelected,
+              onTap: () => setState(() {
+                if (isSelected) {
+                  _selectedCategories = _selectedCategories.where((c) => c != category).toList();
+                } else {
+                  _selectedCategories = [..._selectedCategories, category];
+                }
+                if (_selectedCategories.isEmpty) {
+                  _selectedCategoryFilter = 'all';
+                } else if (_selectedCategories.length == 1) {
+                  _selectedCategoryFilter = _selectedCategories.first;
+                } else {
+                  _selectedCategoryFilter = 'multiple';
+                }
+              }),
+            );
+          }).toList(),
+        ),
+      ],
+    );
   }
 
 
@@ -1206,96 +1348,11 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Empty folder icon with circular background
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.folder_open_rounded,
-                  size: 60,
-                  color: Colors.grey[400],
-                ),
-              ),
-              const SizedBox(height: 24),
-              
-              // Main message
-              const Text(
-                'No receipts saved yet',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              
-              // Subtitle message
-              Text(
-                'Start scanning receipts or create manual entries\nto see them organized here.',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              
-              // Call to action buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      context.go('/scan'); // Navigate to camera/scan page
-                    },
-                    icon: const Icon(Icons.camera_alt, color: Colors.white),
-                    label: const Text(
-                      'Scan Receipt',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4facfe),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 2,
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      context.go('/home'); // Navigate to home to use plus button
-                    },
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text(
-                      'Manual Entry',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 2,
-                    ),
-                  ),
-                ],
-              ),
+              // ✅ UI/UX Improvement: Use improved empty state widget
+            NoBillsEmptyState(
+              onScanPressed: () => context.go('/scan'),
+              onManualEntryPressed: () => context.go('/home'),
+            ),
             ],
           ),
         ),
@@ -1303,24 +1360,85 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     }
   }
 
+  /// Empty state when filters are applied but no receipts match.
+  Widget _buildNoMatchingFiltersEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.filter_list_off,
+                size: 40,
+                color: Colors.grey[500],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No receipts found',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A1A1A),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No receipts match your current filters.\nTry changing or clearing your filters.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _clearAllFilters,
+              icon: const Icon(Icons.clear_all, size: 20, color: Colors.white),
+              label: const Text(
+                'Clear filters',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.bottomNavBackground,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    super.build(context); // ✅ Performance: Required for AutomaticKeepAliveClientMixin
     final bills = ref.watch(billProvider);
     
-    // Filter bills based on search query, source, location, and category
+    // ✅ Optimized: Filter bills based on search query, source, and category
     final filteredBills = bills.where((bill) {
       // First filter by source (scanned/manual)
       if (_selectedSource != 'all') {
         final billSource = _getBillCategory(bill);
         if (billSource != _selectedSource) {
-          return false;
-        }
-      }
-      
-      // Then filter by location (if location filtering is enabled)
-      if (_isLocationFilterEnabled && _selectedLocation != 'all') {
-        final billLocation = bill.location?.toLowerCase() ?? '';
-        if (billLocation != _selectedLocation.toLowerCase()) {
           return false;
         }
       }
@@ -1488,11 +1606,11 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                 ),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Row(
+              child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.star, size: 10, color: Colors.white),
-                  const SizedBox(width: 2),
+                  SizedBox(width: 2),
                   Text(
                     'Premium',
                     style: TextStyle(
@@ -1527,27 +1645,6 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
         children: [
           Column(
             children: [
-          // Search Bar
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                });
-              },
-              decoration: InputDecoration(
-                hintText: 'Search receipts...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: Colors.grey[100],
-              ),
-            ),
-          ),
-          
           // Shared Expenses Section (if enabled)
           if (_showSharedExpenses)
             StreamBuilder<List<UnpaidSharedExpense>>(
@@ -1728,179 +1825,118 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
     );
   }
 
-  // Build List View (existing functionality)
+  /// Filter Receipts container widget (scrolls with list, not fixed).
+  Widget _buildFilterReceiptsContainer(
+    BuildContext context,
+    List<dynamic> allBills,
+    Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills,
+    List<String> sortedYears,
+  ) {
+    return Container(
+      margin: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width * 0.04,
+        vertical: 6,
+      ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Filter Receipts',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: _clearAllFilters,
+                child: const Text(
+                  'Clear all',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.bottomNavBackground,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildFilterCardContent(context, allBills, groupedBills, sortedYears),
+        ],
+      ),
+    );
+  }
+
+  // Build List View: search + filter scroll with receipts (not fixed)
   Widget _buildListView(List<dynamic> allBills, List<dynamic> filteredBills, Map<String, Map<String, Map<String, List<dynamic>>>> groupedBills, List<String> sortedYears) {
-    return Column(
-      children: [
-          // Organized Filter Section - Only show in list view
-          if (_viewMode == 'list') ...[
-           Container(
-              margin: EdgeInsets.symmetric(
-                horizontal: MediaQuery.of(context).size.width * 0.04,
-                vertical: 6,
-              ),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.grey[200]!),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.02),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-               children: [
-                  // Filter Header
-                  Row(
-                    children: [
-                      Icon(Icons.filter_list, size: 18, color: Colors.blue[600]),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Filter Receipts',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[800],
-                          fontSize: 14,
-                        ),
-                      ),
-                      const Spacer(),
-                      // Premium indicator
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.amber[400]!, Colors.amber[600]!],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.star, size: 10, color: Colors.white),
-                            const SizedBox(width: 3),
-                            Text(
-                              'Premium',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-               ],
-             ),
-           ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Responsive Filter Layout
-                  _buildResponsiveFilterLayout(context, allBills, filteredBills),
-                ],
-              ),
-            ),
+    if (groupedBills.isEmpty) {
+      // No receipts at all: search bar + empty state
+      if (allBills.isEmpty) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildSearchBar(),
+            Expanded(child: _buildEmptyState()),
           ],
-          
-          
-          // Year/Month Filter
-          if (groupedBills.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(
-              height: 50,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Material(
-                color: Colors.transparent,
-                child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: sortedYears.length,
-                itemBuilder: (context, yearIndex) {
-                  final year = sortedYears[yearIndex];
-                  final months = groupedBills[year]!.keys.toList()..sort((a, b) => b.compareTo(a));
-                  
-                  return Row(
-                    children: [
-                      // Year filter
-                      GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            if (_selectedYear == year) {
-                              _selectedYear = null;
-                              _selectedMonth = null;
-                            } else {
-                              _selectedYear = year;
-                              _selectedMonth = null;
-                            }
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            color: _selectedYear == year ? const Color(0xFF4facfe) : Colors.grey[200],
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            year,
-                            style: TextStyle(
-                              color: _selectedYear == year ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      // Month filters
-                      if (_selectedYear == year)
-                        ...months.map((month) => GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              if (_selectedMonth == month) {
-                                _selectedMonth = null;
-                              } else {
-                                _selectedMonth = month;
-                              }
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: _selectedMonth == month ? const Color(0xFF4facfe) : Colors.grey[200],
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              DateFormat('MMM').format(DateFormat('MMMM yyyy').parse(month)),
-                              style: TextStyle(
-                                color: _selectedMonth == month ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        )).toList(),
-                    ],
-                  );
-                },
-              ),
+        );
+      }
+      // Filters applied but no match: search + filter container + "No receipts found" message
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildSearchBar(),
+          _buildFilterReceiptsContainer(context, allBills, groupedBills, sortedYears),
+          Expanded(child: _buildNoMatchingFiltersEmptyState()),
+        ],
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () async {
+        _resetPagination();
+        if (mounted) setState(() {});
+        await Future.delayed(const Duration(milliseconds: 500));
+      },
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          // Search bar as first sliver — scrolls away with content
+          if (_viewMode == 'list')
+            SliverToBoxAdapter(child: _buildSearchBar()),
+          // Filter container
+          if (_viewMode == 'list')
+            SliverToBoxAdapter(
+              child: _buildFilterReceiptsContainer(context, allBills, groupedBills, sortedYears),
             ),
-            ),
-          ],
-          
-        // Bills List
-          Expanded(
-            child: groupedBills.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: sortedYears.length,
-                    itemBuilder: (context, yearIndex) {
+          // Receipt list
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, yearIndex) {
                       final year = sortedYears[yearIndex];
-                      final months = groupedBills[year]!.keys.toList()..sort((a, b) => b.compareTo(a));
+                      final months = groupedBills[year]!.keys.toList()
+                        ..sort((a, b) {
+                          final da = DateFormat('MMMM yyyy').parse(a);
+                          final db = DateFormat('MMMM yyyy').parse(b);
+                          return db.compareTo(da); // descending: newest month first
+                        });
                       
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1974,174 +2010,118 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                                       ],
                                                     ),
                                                     child: IntrinsicHeight(
-                                              child: Row(
+                                              child: Padding(
+                                                padding: const EdgeInsets.only(left: 12),
+                                                child: Row(
                                               children: [
-                                                // Receipt Image or Brand Icon (LEFT SIDE)
-                                                Container(
-                                                  width: 80,
-                                                  decoration: BoxDecoration(
-                                                    borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-                                                    color: _shouldShowBrandIcon(bill) ? const Color(0xFFF1F3F4) : null,
-                                                    image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
-                                                      image: FileImage(File(bill.imagePath)),
-                                                      fit: BoxFit.cover,
+                                                // Receipt thumbnail (left): fixed square for uniform padding, larger thumbnail
+                                                Stack(
+                                                  clipBehavior: Clip.none,
+                                                  children: [
+                                                    Container(
+                                                      width: 88,
+                                                      height: 88,
+                                                      decoration: BoxDecoration(
+                                                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+                                                        color: _shouldShowBrandIcon(bill) ? Colors.white : null,
+                                                        image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
+                                                          image: CachedBillImageProvider(
+                                                            imagePath: bill.imagePath,
+                                                            cacheWidth: 200,
+                                                            cacheHeight: 200,
+                                                          ).resized,
+                                                          fit: BoxFit.cover,
+                                                        ),
+                                                      ),
+                                                      child: _shouldShowBrandIcon(bill)
+                                                          ? _buildCategoryThumbnail(bill, size: 64)
+                                                          : null,
                                                     ),
-                                                  ),
-                                                  child: _shouldShowBrandIcon(bill)
-                                                      ? Center(
-                                                          child: ReceiptBrandIcon(
-                                                            name: _getBrandDisplayName(bill),
-                                                            category: null,
-                                                            size: 50,
-                                                            isSubscription: bill.subscriptionType != null,
-                                                            forceLetterFallback: true, // Always show first letter for manual/subscription
-                                                          ),
-                                                        )
-                                                      : null,
+                                                    if (bill.subscriptionType != null)
+                                                      Positioned(
+                                                        top: 4,
+                                                        right: 4,
+                                                        child: _buildSubLabelBox(bill),
+                                                      ),
+                                                  ],
                                                 ),
-                                                
-                                                // Bill Details
+                                                // Bill Details: title + amount top row, date, then category below
                                                 Expanded(
                                                   child: Padding(
-                                                    padding: const EdgeInsets.all(12),
-                                                    child: Row(
+                                                    padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                       children: [
-                                                        // Left side: Title, Date, Amount
-                                                        Expanded(
-                                                          flex: 3,
-                                                          child: Column(
-                                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                            children: [
-                                                              // Title (bold and bigger - primary focus)
-                                                              Text(
+                                                        // Top row: Merchant name (left) + Total cost (right, primary dark blue)
+                                                        Row(
+                                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                                          children: [
+                                                            Expanded(
+                                                              child: Text(
                                                                 (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
                                                                 style: const TextStyle(
                                                                   fontWeight: FontWeight.w600,
-                                                                  fontSize: 16,
+                                                                  fontSize: 18,
                                                                   color: Color(0xFF1A1A1A),
                                                                 ),
                                                                 maxLines: 1,
                                                                 overflow: TextOverflow.ellipsis,
                                                               ),
-                                                              const SizedBox(height: 4),
-                                                              // Date (small)
-                                                              Text(
-                                                                _formatDate(bill.date),
-                                                                style: const TextStyle(
-                                                                  color: Color(0xFF6B7280),
-                                                                  fontSize: 12,
-                                                                  fontWeight: FontWeight.w400,
-                                                                ),
+                                                            ),
+                                                            const SizedBox(width: 8),
+                                                            Text(
+                                                              '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
+                                                              style: const TextStyle(
+                                                                color: AppColors.bottomNavBackground,
+                                                                fontSize: 16,
+                                                                fontWeight: FontWeight.w600,
                                                               ),
-                                                              const SizedBox(height: 4),
-                                                              // Amount (highlighted with primary color)
-                                                              Text(
-                                                                '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
-                                                                style: const TextStyle(
-                                                                  color: Color(0xFF4facfe),
-                                                                  fontSize: 14,
-                                                                  fontWeight: FontWeight.w600,
-                                                                ),
-                                                              ),
-                                                            ],
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        const SizedBox(height: 4),
+                                                        // Date
+                                                        Text(
+                                                          _formatDate(bill.date),
+                                                          style: const TextStyle(
+                                                            color: Color(0xFF6B7280),
+                                                            fontSize: 12,
+                                                            fontWeight: FontWeight.w400,
                                                           ),
                                                         ),
-                                                        
-                                                        // Right side: Categories as unified neutral labels (TOP-RIGHT)
-                                                        Expanded(
-                                                          flex: 2,
-                                                          child: Column(
-                                                            crossAxisAlignment: CrossAxisAlignment.end,
-                                                            mainAxisAlignment: MainAxisAlignment.start,
-                                                            children: [
-                                                              Wrap(
-                                                                alignment: WrapAlignment.end,
-                                                                spacing: 6,
-                                                                runSpacing: 6,
-                                                                children: [
-                                                                  // Category tags - show first to maintain consistent position
-                                                                  if (bill.tags != null && bill.tags!.isNotEmpty)
-                                                                    ...bill.tags!.take(2).map<Widget>((tag) => Container(
-                                                                    constraints: const BoxConstraints(
-                                                                      minWidth: 80,
-                                                                    ),
-                                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                                    decoration: BoxDecoration(
-                                                                      color: const Color(0xFFF8FAFC),
-                                                                      borderRadius: BorderRadius.circular(8),
-                                                                      border: Border.all(
-                                                                        color: const Color(0xFFE1E5E9),
-                                                                        width: 1,
-                                                                      ),
-                                                                    ),
-                                                                    child: Row(
-                                                                      mainAxisSize: MainAxisSize.min,
-                                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                                      children: [
-                                                                        Icon(
-                                                                          _getCategoryIcon(tag),
-                                                                          size: 12,
-                                                                          color: const Color(0xFF6B7280),
-                                                                        ),
-                                                                        const SizedBox(width: 5),
-                                                                        Flexible(
-                                                                          child: Text(
-                                                                            tag,
-                                                                            style: const TextStyle(
-                                                                              fontSize: 11,
-                                                                              color: Color(0xFF1A1A1A),
-                                                                              fontWeight: FontWeight.w500,
-                                                                            ),
-                                                                            maxLines: 1,
-                                                                            overflow: TextOverflow.ellipsis,
-                                                                          ),
-                                                                        ),
-                                                                      ],
-                                                                    ),
-                                                                  )),
-                                                                  // Show "Other" tag only if no categories and no subscription
-                                                                  if ((bill.tags == null || bill.tags!.isEmpty) && bill.subscriptionType == null)
-                                                                    Container(
-                                                                      constraints: const BoxConstraints(
-                                                                        minWidth: 80,
-                                                                      ),
-                                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                                      decoration: BoxDecoration(
-                                                                        color: const Color(0xFFF8FAFC),
-                                                                        borderRadius: BorderRadius.circular(8),
-                                                                        border: Border.all(
-                                                                          color: const Color(0xFFE1E5E9),
-                                                                          width: 1,
-                                                                        ),
-                                                                      ),
-                                                                      child: Row(
-                                                                        mainAxisSize: MainAxisSize.min,
-                                                                        mainAxisAlignment: MainAxisAlignment.center,
-                                                                        children: [
-                                                                          const Icon(
-                                                                            Icons.label_outline,
-                                                                            size: 12,
-                                                                            color: Color(0xFF6B7280),
-                                                                          ),
-                                                                          const SizedBox(width: 5),
-                                                                          const Text(
-                                                                            'Other',
-                                                                            style: TextStyle(
-                                                                              fontSize: 11,
-                                                                              color: Color(0xFF1A1A1A),
-                                                                              fontWeight: FontWeight.w500,
-                                                                            ),
-                                                                          ),
-                                                                        ],
-                                                                      ),
-                                                                    ),
-                                                                ],
+                                                        const SizedBox(height: 6),
+                                                        // Category label(s) below date (text only, reduced height)
+                                                        Wrap(
+                                                          spacing: 6,
+                                                          runSpacing: 4,
+                                                          children: [
+                                                            if (bill.tags != null && bill.tags!.isNotEmpty)
+                                                              ...bill.tags!.take(2).map<Widget>((tag) => Container(
+                                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                                decoration: BoxDecoration(
+                                                                  color: const Color(0xFFF8FAFC),
+                                                                  borderRadius: BorderRadius.circular(6),
+                                                                  border: Border.all(color: const Color(0xFFE1E5E9), width: 1),
+                                                                ),
+                                                                child: Text(
+                                                                  tag,
+                                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF1A1A1A), fontWeight: FontWeight.w500),
+                                                                  maxLines: 1,
+                                                                  overflow: TextOverflow.ellipsis,
+                                                                ),
+                                                              )),
+                                                            if ((bill.tags == null || bill.tags!.isEmpty) && bill.subscriptionType == null)
+                                                              Container(
+                                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                                decoration: BoxDecoration(
+                                                                  color: const Color(0xFFF8FAFC),
+                                                                  borderRadius: BorderRadius.circular(6),
+                                                                  border: Border.all(color: const Color(0xFFE1E5E9), width: 1),
+                                                                ),
+                                                                child: const Text('Other', style: TextStyle(fontSize: 11, color: Color(0xFF1A1A1A), fontWeight: FontWeight.w500)),
                                                               ),
-                                                              // Spacer to push categories to top
-                                                              const Spacer(),
-                                                            ],
-                                                          ),
+                                                          ],
                                                         ),
                                                       ],
                                                     ),
@@ -2150,17 +2130,8 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                               ],
                                             ),
                                             ),
+                                            ),
                                                   ),
-                                                  // Subscription frequency indicator - positioned to overlap card edge
-                                                  if (bill.subscriptionType != null)
-                                                    Positioned(
-                                                      top: -8,
-                                                      right: -8,
-                                                      child: SubscriptionIndicator(
-                                                        subscriptionType: bill.subscriptionType,
-                                                        size: 22,
-                                                      ),
-                                                    ),
                                                 ],
                                               ),
                                             ),
@@ -2169,15 +2140,18 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                     },
                                   ),
                                   ]);
-                              }).toList(),
+                              }),
                             ],
                           );
                         }).toList(),
                       );
                     },
-                  ),
+                childCount: sortedYears.length + (_hasMore && filteredBills.length > (_currentPage + 1) * _pageSize ? 1 : 0),
+              ),
+            ),
           ),
         ],
+      ),
     );
   }
 
@@ -2302,26 +2276,29 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                     child: Column(
                               children: [
                                 Expanded(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                                      color: _shouldShowBrandIcon(bill) ? const Color(0xFFF1F3F4) : null,
-                                      image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
-                                        image: FileImage(File(bill.imagePath)),
-                                        fit: BoxFit.cover,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                                          color: _shouldShowBrandIcon(bill) ? Colors.white : null,
+                                          image: _shouldShowBrandIcon(bill) ? null : DecorationImage(
+                                            image: FileImage(File(bill.imagePath)),
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                        child: _shouldShowBrandIcon(bill)
+                                            ? _buildCategoryThumbnail(bill, size: 40)
+                                            : null,
                                       ),
-                                    ),
-                                    child: _shouldShowBrandIcon(bill)
-                                        ? Center(
-                                            child: ReceiptBrandIcon(
-                                              name: _getBrandDisplayName(bill),
-                                              category: null,
-                                              size: 40,
-                                              isSubscription: bill.subscriptionType != null,
-                                              forceLetterFallback: true, // Always show first letter for manual/subscription
-                                            ),
-                                          )
-                                        : null,
+                                      if (bill.subscriptionType != null)
+                                        Positioned(
+                                          top: 2,
+                                          right: 2,
+                                          child: _buildSubLabelBox(bill),
+                                        ),
+                                    ],
                                   ),
                                 ),
                                 Padding(
@@ -2329,19 +2306,34 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      // Title (bold)
-                                      Text(
-                                        (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF1A1A1A),
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                      // Top row: Title (left) + Amount (right, primary dark blue)
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              (bill.title?.isNotEmpty == true ? bill.title! : bill.vendor) ?? 'Unknown',
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF1A1A1A),
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.bottomNavBackground,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 2),
-                                      // Date (small)
+                                      // Date
                                       Text(
                                         DateFormat('MMM dd').format(bill.date ?? DateTime.now()),
                                         style: const TextStyle(
@@ -2350,62 +2342,27 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                                           fontWeight: FontWeight.w400,
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
-                                      // Amount (highlighted)
-                                      Text(
-                                        '${(bill.total ?? 0.0).toStringAsFixed(2)} ${bill.currency ?? ''}',
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: Color(0xFF4facfe),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
                                       const SizedBox(height: 4),
-                                      // Categories and subscription indicator as unified neutral labels
+                                      // Category labels below date (text only, reduced height)
                                       Wrap(
                                         spacing: 4,
-                                        runSpacing: 4,
+                                        runSpacing: 2,
                                         children: [
-                                          // Category tags - show first to maintain consistent position
                                           if (bill.tags != null && bill.tags!.isNotEmpty)
                                             ...bill.tags!.take(2).map<Widget>((tag) => Container(
-                                            constraints: const BoxConstraints(
-                                              minWidth: 60,
-                                            ),
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFF8FAFC),
-                                              borderRadius: BorderRadius.circular(6),
-                                              border: Border.all(
-                                                color: const Color(0xFFE1E5E9),
-                                                width: 0.8,
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF8FAFC),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: const Color(0xFFE1E5E9), width: 0.8),
                                               ),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Icon(
-                                                  _getCategoryIcon(tag),
-                                                  size: 8,
-                                                  color: const Color(0xFF6B7280),
-                                                ),
-                                                const SizedBox(width: 3),
-                                                Flexible(
-                                                  child: Text(
-                                                    tag,
-                                                    style: const TextStyle(
-                                                      fontSize: 8,
-                                                      color: Color(0xFF1A1A1A),
-                                                      fontWeight: FontWeight.w500,
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )),
+                                              child: Text(
+                                                tag,
+                                                style: const TextStyle(fontSize: 8, color: Color(0xFF1A1A1A), fontWeight: FontWeight.w500),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            )),
                                         ],
                                       ),
                                     ],
@@ -2415,16 +2372,6 @@ Tags: ${bill.tags?.join(', ') ?? 'N/A'}
                             ),
                                   ),
                                 ),
-                                // Subscription frequency indicator - positioned to overlap card edge
-                                if (bill.subscriptionType != null)
-                                  Positioned(
-                                    top: -6,
-                                    right: -6,
-                                    child: SubscriptionIndicator(
-                                      subscriptionType: bill.subscriptionType,
-                                      size: 18,
-                                    ),
-                                  ),
                               ],
                             ),
                           ),

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import '../theme/app_colors.dart';
 import 'interactive_crop_widget.dart';
 
 /// Simple crop dialog with manual crop only (no auto-detect)
@@ -153,7 +154,7 @@ class _SimpleCropDialogState extends State<SimpleCropDialog> {
     
     print('🔍 CROP DEBUG: Applying crop to image');
     print('  Image size: ${image.width}x${image.height}');
-    print('  Crop rect: ${clampedCrop}');
+    print('  Crop rect: $clampedCrop');
     print('  Crop coordinates: x=$x, y=$y, w=$width, h=$height');
     
     // Apply crop
@@ -240,7 +241,7 @@ class _SimpleCropDialogState extends State<SimpleCropDialog> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: const BoxDecoration(
-                color: Color(0xFF2E7D32),
+                color: AppColors.bottomNavBackground,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(12),
                   topRight: Radius.circular(12),
@@ -275,16 +276,31 @@ class _SimpleCropDialogState extends State<SimpleCropDialog> {
               ),
             ),
             
-            // Instructions
+            // Instructions and crop guidance
             Container(
               padding: const EdgeInsets.all(16),
-              child: const Text(
-                'Drag the corner handles to select your receipt area. Focus on the receipt content only.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-                textAlign: TextAlign.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Drag the corner handles to select your receipt area.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Crop to the receipt only for best accuracy. Include the total line at the bottom.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             ),
             
@@ -363,7 +379,7 @@ class _SimpleCropDialogState extends State<SimpleCropDialog> {
                     child: ElevatedButton(
                       onPressed: _isProcessing ? null : _applyCrop,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D32),
+                        backgroundColor: AppColors.bottomNavBackground,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),

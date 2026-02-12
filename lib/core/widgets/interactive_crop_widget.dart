@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import '../theme/app_colors.dart';
 
 /// Interactive crop widget with draggable corner handles
 /// Users can manually adjust crop area by dragging corner handles
@@ -346,12 +347,12 @@ class InteractiveCropOverlayPainter extends CustomPainter {
       ..color = Colors.black.withOpacity(0.5);
     
     final cropPaint = Paint()
-      ..color = Colors.green
+      ..color = AppColors.bottomNavBackground
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
     
     final handlePaint = Paint()
-      ..color = Colors.green
+      ..color = AppColors.bottomNavBackground
       ..style = PaintingStyle.fill;
     
     final draggingHandlePaint = Paint()
@@ -370,7 +371,7 @@ class InteractiveCropOverlayPainter extends CustomPainter {
     canvas.drawRect(cropRect, cropPaint);
     
     // Draw corner handles
-    final handleSize = 16.0;
+    const handleSize = 16.0;
     final handles = [
       Offset(cropRect.left, cropRect.top),      // Top-left
       Offset(cropRect.right, cropRect.top),     // Top-right

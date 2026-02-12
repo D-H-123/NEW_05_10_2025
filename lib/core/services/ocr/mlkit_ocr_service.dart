@@ -264,9 +264,13 @@ import 'dart:async';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'i_ocr_service.dart';
 import 'parcer/receipt_parser.dart';
+import 'ocr_logger.dart';
 
 // Toggle verbose OCR debug logging
 const bool kOcrDebugLogs = true;
+
+// Redirect legacy print calls to structured logger
+void print(Object? object) => OcrLogger.debug(object?.toString() ?? '');
 
 /// Concrete OCR service using ML Kit on-device text recognition.
 /// - Returns both raw text and parsed receipt structure.
@@ -297,7 +301,7 @@ class MlKitOcrService implements IOcrService {
       
       return result;
     } catch (e) {
-      print('❌ MAGIC: OCR processing failed with error: $e');
+      OcrLogger.error('OCR processing failed with error: $e');
       rethrow;
     }
   }
@@ -313,7 +317,7 @@ class MlKitOcrService implements IOcrService {
       print('🔍 MAGIC: Raw text extracted successfully');
       return recognizedText.text;
     } catch (e) {
-      print('❌ MAGIC: Raw text extraction failed: $e');
+      OcrLogger.error('Raw text extraction failed: $e');
       rethrow;
     }
   }
@@ -609,6 +613,7 @@ class MlKitOcrService implements IOcrService {
       category: parsed.category,
       lineItems: parsed.lineItems,
       totalsBreakdown: parsed.totals,
+      totalCandidates: parsed.totalCandidates,
     );
   }
 
@@ -628,7 +633,7 @@ class MlKitOcrService implements IOcrService {
       
       return result;
     } catch (e) {
-      print('❌ MAGIC: OCR processing failed with error: $e');
+      OcrLogger.error('OCR processing failed with error: $e');
       rethrow;
     }
   }
@@ -675,6 +680,7 @@ class MlKitOcrService implements IOcrService {
       category: parsed.category,
       lineItems: parsed.lineItems,
       totalsBreakdown: parsed.totals,
+      totalCandidates: parsed.totalCandidates,
     );
   }
 

@@ -35,12 +35,12 @@ class SubscriptionIntegrationExample extends StatelessWidget {
           // Your existing home content goes here
           Expanded(
             child: ListView(
-              children: [
+              children: const [
                 // Example: Add compact status card in a list
-                const CompactSubscriptionStatusCard(),
+                CompactSubscriptionStatusCard(),
                 
                 // Your existing content...
-                const Card(
+                Card(
                   child: ListTile(
                     leading: Icon(Icons.receipt),
                     title: Text('Recent Receipts'),
@@ -48,7 +48,7 @@ class SubscriptionIntegrationExample extends StatelessWidget {
                   ),
                 ),
                 
-                const Card(
+                Card(
                   child: ListTile(
                     leading: Icon(Icons.camera_alt),
                     title: Text('Scan Receipt'),
@@ -56,7 +56,7 @@ class SubscriptionIntegrationExample extends StatelessWidget {
                   ),
                 ),
                 
-                const Card(
+                Card(
                   child: ListTile(
                     leading: Icon(Icons.analytics),
                     title: Text('Analytics'),
@@ -209,17 +209,17 @@ class SubscriptionBottomSheetExample extends StatelessWidget {
                           child: ListView(
                             controller: scrollController,
                             padding: const EdgeInsets.all(16),
-                            children: [
-                              const Text(
+                            children: const [
+                              Text(
                                 'Subscription Details',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              SizedBox(height: 16),
                               
-                              const Card(
+                              Card(
                                 child: ListTile(
                                   leading: Icon(Icons.notifications),
                                   title: Text('Notification Settings'),
@@ -228,7 +228,7 @@ class SubscriptionBottomSheetExample extends StatelessWidget {
                                 ),
                               ),
                               
-                              const Card(
+                              Card(
                                 child: ListTile(
                                   leading: Icon(Icons.payment),
                                   title: Text('Billing'),
@@ -237,7 +237,7 @@ class SubscriptionBottomSheetExample extends StatelessWidget {
                                 ),
                               ),
                               
-                              const Card(
+                              Card(
                                 child: ListTile(
                                   leading: Icon(Icons.help),
                                   title: Text('Support'),

@@ -67,7 +67,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             }
           },
         ),
-        actions: [],
+        actions: const [],
       ),
       body: ResponsiveContainer(
         maxWidth: 600,
@@ -262,7 +262,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     setState(() => _calendarResults = v);
                     await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, v);
                   },
-                  activeColor: Colors.blueGrey,
+                  activeThumbColor: Colors.blueGrey,
                 ),
                 onTap: () async {
                   setState(() => _calendarResults = !_calendarResults);
@@ -302,7 +302,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     setState(() => _notes = v);
                     await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, v);
                   },
-                  activeColor: Colors.teal,
+                  activeThumbColor: Colors.teal,
                 ),
                 onTap: () async {
                   setState(() => _notes = !_notes);
@@ -655,7 +655,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
+        shape: const RoundedRectangleBorder(
           borderRadius: AppTheme.largeBorderRadius,
         ),
         title: const Text(
@@ -830,7 +830,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   
                 ),
-                child: Center(
+                child: const Center(
                   child: Icon(
                     Icons.diamond,
                     color: Colors.white,
@@ -849,7 +849,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
+        shape: const RoundedRectangleBorder(
           borderRadius: AppTheme.largeBorderRadius,
         ),
         title: const Text(
@@ -883,7 +883,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
+        shape: const RoundedRectangleBorder(
           borderRadius: AppTheme.largeBorderRadius,
         ),
         title: const Text(
@@ -920,7 +920,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       applicationIcon: Container(
         width: 64,
         height: 64,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: AppTheme.primaryGradient,
           borderRadius: AppTheme.mediumBorderRadius,
         ),
@@ -1010,7 +1010,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
+        shape: const RoundedRectangleBorder(
           borderRadius: AppTheme.largeBorderRadius,
         ),
         title: Row(
@@ -1018,7 +1018,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: AppTheme.primaryGradient,
                 shape: BoxShape.circle,
               ),
@@ -1121,10 +1121,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               
               // Currency Preference
               DropdownButtonFormField<String>(
-                value: 'USD',
-                decoration: InputDecoration(
+                initialValue: 'USD',
+                decoration: const InputDecoration(
                   labelText: 'Default Currency',
-                  prefixIcon: const Icon(Icons.attach_money),
+                  prefixIcon: Icon(Icons.attach_money),
                   border: OutlineInputBorder(
                     borderRadius: AppTheme.mediumBorderRadius,
                   ),
@@ -1292,7 +1292,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           }
 
           return AlertDialog(
-            shape: RoundedRectangleBorder(
+            shape: const RoundedRectangleBorder(
               borderRadius: AppTheme.largeBorderRadius,
             ),
             title: Row(
@@ -1567,6 +1567,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
+
   void _showUnifiedNotificationSettings(BuildContext context) async {
     // Request permissions first
     final hasPermission = await BudgetNotificationService.requestPermissions();
@@ -1597,7 +1598,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            shape: RoundedRectangleBorder(
+            shape: const RoundedRectangleBorder(
               borderRadius: AppTheme.largeBorderRadius,
             ),
             title: Row(
@@ -1679,7 +1680,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: const Text('Get weekly updates on your budget', style: TextStyle(fontSize: 12)),
-                    activeColor: Colors.blue,
+                    activeThumbColor: Colors.blue,
                     contentPadding: const EdgeInsets.only(left: 0),
                   ),
                   
@@ -1696,7 +1697,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: const Text('Alert at 80% or 100% budget', style: TextStyle(fontSize: 12)),
-                    activeColor: Colors.blue,
+                    activeThumbColor: Colors.blue,
                     contentPadding: const EdgeInsets.only(left: 0),
                   ),
                   
@@ -1713,7 +1714,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: const Text('Daily spending tips', style: TextStyle(fontSize: 12)),
-                    activeColor: Colors.blue,
+                    activeThumbColor: Colors.blue,
                     contentPadding: const EdgeInsets.only(left: 0),
                   ),
                   
@@ -1776,7 +1777,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
                     subtitle: const Text('Remind before subscriptions renew', style: TextStyle(fontSize: 12)),
-                    activeColor: Colors.purple,
+                    activeThumbColor: Colors.purple,
                     contentPadding: const EdgeInsets.only(left: 0),
                   ),
                   

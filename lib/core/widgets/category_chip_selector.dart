@@ -399,7 +399,7 @@ class _ExpandableCategoryChipSelectorState
                   ),
                 ),
               );
-            }).toList(),
+            }),
             // Show more/less button
             if (hasMore)
               Material(

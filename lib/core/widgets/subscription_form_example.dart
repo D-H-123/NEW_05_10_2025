@@ -55,7 +55,7 @@ class _SubscriptionFormExampleState extends State<SubscriptionFormExample> {
             
             // Frequency Dropdown
             DropdownButtonFormField<String>(
-              value: _selectedFrequency,
+              initialValue: _selectedFrequency,
               decoration: const InputDecoration(
                 labelText: 'Frequency',
                 border: OutlineInputBorder(),

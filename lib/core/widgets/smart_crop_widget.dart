@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import '../theme/app_colors.dart';
 
 /// High-performance manual crop widget with smart features
 /// Provides maximum efficiency and accuracy for gallery imports
@@ -102,7 +103,7 @@ class _SmartCropWidgetState extends State<SmartCropWidget> with TickerProviderSt
     suggestions.add(fullWidthCrop);
     
     // Suggestion 3: Golden ratio crop (aesthetic)
-    final goldenRatio = 1.618;
+    const goldenRatio = 1.618;
     final cropHeight = width / goldenRatio;
     final goldenCrop = Rect.fromCenter(
       center: Offset(width / 2, height / 2),
@@ -439,12 +440,12 @@ class CropOverlayPainter extends CustomPainter {
       ..color = Colors.black.withOpacity(0.5);
     
     final cropPaint = Paint()
-      ..color = Colors.green
+      ..color = AppColors.bottomNavBackground
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
     
     final handlePaint = Paint()
-      ..color = Colors.green
+      ..color = AppColors.bottomNavBackground
       ..style = PaintingStyle.fill;
     
     // Draw overlay outside crop area
@@ -459,7 +460,7 @@ class CropOverlayPainter extends CustomPainter {
     canvas.drawRect(cropRect, cropPaint);
     
     // Draw corner handles
-    final handleSize = 12.0;
+    const handleSize = 12.0;
     final handles = [
       Offset(cropRect.left, cropRect.top), // Top-left
       Offset(cropRect.right, cropRect.top), // Top-right

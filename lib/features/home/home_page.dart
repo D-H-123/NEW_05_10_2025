@@ -1,13 +1,14 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import './dynamic_expense_modal.dart';
 import '../storage/bill/bill_provider.dart';
 import '../storage/models/bill_model.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/widgets/subscription_paywall.dart';
@@ -16,7 +17,11 @@ import '../../core/services/currency_service.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/personal_subscription_reminder_service.dart';
 import '../../core/services/budget_streak_service.dart';
+import '../../core/services/category_service.dart';
 import '../collaboration/budget_collaboration_page.dart';
+import 'home_spending_providers.dart';
+import '../../core/widgets/empty_state_widget.dart';
+import '../../core/theme/app_colors.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   final double growthPercentage;
@@ -41,18 +46,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
   }
 
+  // ✅ Optimized: Use memoized provider instead of recalculating
   double _calculateCurrentMonthSpending() {
-    final bills = ref.watch(billProvider);
-    final now = DateTime.now();
-    final currentMonth = DateTime(now.year, now.month);
-    final nextMonth = DateTime(now.year, now.month + 1);
-
-    return bills
-        .where((bill) =>
-            bill.date != null &&
-            bill.date!.isAfter(currentMonth.subtract(const Duration(days: 1))) &&
-            bill.date!.isBefore(nextMonth))
-        .fold<double>(0.0, (sum, bill) => sum + (bill.total ?? 0.0));
+    return ref.watch(currentMonthSpendingProvider);
   }
 
   int _getDaysLeftInMonth() {
@@ -61,43 +57,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     return lastDayOfMonth.day - now.day;
   }
 
+  // ✅ Optimized: Use memoized provider instead of recalculating
   Map<int, double> _getMonthlySpending() {
-    final bills = ref.watch(billProvider);
-    final now = DateTime.now();
-    final currentYear = now.year;
-    final monthlyTotals = <int, double>{};
-
-    // Initialize all months from Jan to current month with 0
-    for (int month = 1; month <= now.month; month++) {
-      monthlyTotals[month] = 0.0;
-    }
-
-    // Calculate spending for each month
-    for (final bill in bills) {
-      if (bill.date != null && bill.date!.year == currentYear) {
-        final month = bill.date!.month;
-        if (month <= now.month) {
-          monthlyTotals[month] = (monthlyTotals[month] ?? 0.0) + (bill.total ?? 0.0);
-        }
-      }
-    }
-
-    return monthlyTotals;
+    return ref.watch(currentYearMonthlySpendingProvider);
   }
 
+  // ✅ Optimized: Use memoized provider instead of recalculating
   double _calculatePercentageChange(int selectedMonth) {
-    final monthlySpending = _getMonthlySpending();
-    final currentAmount = monthlySpending[selectedMonth + 1] ?? 0.0;
-    
-    if (selectedMonth == 0) return 0.0; // No previous month for January
-    
-    final previousAmount = monthlySpending[selectedMonth] ?? 0.0;
-    
-    if (previousAmount == 0) {
-      return currentAmount > 0 ? 100.0 : 0.0;
-    }
-    
-    return ((currentAmount - previousAmount) / previousAmount) * 100;
+    return ref.watch(monthlyPercentageChangeProvider(selectedMonth));
   }
 
   void _showBudgetDialog() {
@@ -116,7 +83,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           }
 
           return AlertDialog(
-            shape: RoundedRectangleBorder(
+            shape: const RoundedRectangleBorder(
               borderRadius: AppTheme.largeBorderRadius,
             ),
             title: Row(
@@ -392,38 +359,45 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   void initState() {
     super.initState();
-    _ensureCurrencySetup();
-    _loadBudget();
+    // Defer init to after first frame so route transition stays smooth
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadCurrencyAndBudgetOnce();
+    });
   }
 
-  void _loadBudget() {
+  void _loadCurrencyAndBudgetOnce() {
+    final globalCode = ref.read(currencyProvider).currencyCode;
+    final budget = LocalStorageService.getDoubleSetting(LocalStorageService.kMonthlyBudget);
     setState(() {
-      _monthlyBudget = LocalStorageService.getDoubleSetting(LocalStorageService.kMonthlyBudget);
+      _selectedCurrency = globalCode;
+      _monthlyBudget = budget;
     });
-    
-    // Check and update streak if budget is set
+    _ensureCurrencySetup(); // Handles first-launch dialog only
     if (_monthlyBudget != null && _monthlyBudget! > 0) {
-      _checkStreakAsync();
+      Future.microtask(() {
+        if (mounted) _checkStreakAsync();
+      });
     }
   }
 
   Future<void> _checkStreakAsync() async {
     final currentSpending = _calculateCurrentMonthSpending();
     final isUnderBudget = _monthlyBudget != null && currentSpending < _monthlyBudget!;
-    
+
     final result = await BudgetStreakService.checkAndUpdateStreak(
       isUnderBudget: isUnderBudget,
     );
-    
+
     // Show celebration for milestones
     if (result.milestone != null && mounted) {
       _showStreakMilestone(result.milestone!);
     } else if (result.isNewBest && result.currentStreak > 7 && mounted) {
       _showNewBestStreak(result.currentStreak);
     }
-    
-    if (mounted) {
-      setState(() {}); // Refresh UI
+
+    if (mounted && (result.milestone != null || result.isNewBest)) {
+      setState(() {}); // Refresh UI only when streak actually changed
     }
   }
 
@@ -665,12 +639,7 @@ Join me on SmartReceipt! 💪
 
   Future<void> _ensureCurrencySetup() async {
     final hasSetup = LocalStorageService.getBoolSetting(LocalStorageService.kHasCompletedCurrencySetup);
-    final globalCode = ref.read(currencyProvider).currencyCode;
-    setState(() {
-      _selectedCurrency = globalCode;
-    });
-    
-    // Only show currency selection on very first app launch
+    // Currency already set in _loadCurrencyAndBudgetOnce; only show dialog on first launch
     if (!hasSetup) {
       // Show a small modal to pick default currency
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -920,7 +889,7 @@ Join me on SmartReceipt! 💪
               
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('${category} added successfully!'),
+                  content: Text('$category added successfully!'),
                   backgroundColor: Colors.green,
                 ),
               );
@@ -928,7 +897,7 @@ Join me on SmartReceipt! 💪
               print('🔍 MAGIC HOME: Error saving manual entry: $e');
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Failed to save ${category}: $e'),
+                  content: Text('Failed to save $category: $e'),
                   backgroundColor: Colors.red,
                 ),
               );
@@ -972,7 +941,7 @@ Join me on SmartReceipt! 💪
             ),
           ),
           const SizedBox(width: 12),
-          Flexible(
+          const Flexible(
             child: Text(
               'Smart Receipt',
               style: TextStyle(
@@ -996,8 +965,9 @@ Join me on SmartReceipt! 💪
     final currentSpending = _calculateCurrentMonthSpending();
     final daysLeft = _getDaysLeftInMonth();
     final currencySymbol = _getCurrencySymbol(_selectedCurrency);
+    final bills = ref.watch(billProvider);
 
-    // If no budget is set, show "Set Budget" card
+    // ✅ UI/UX Improvement: Use improved empty state widget
     if (_monthlyBudget == null || _monthlyBudget == 0) {
       return Container(
         margin: const EdgeInsets.all(24),
@@ -1028,7 +998,7 @@ Join me on SmartReceipt! 💪
                   ),
                 ),
                 GestureDetector(
-                  onTap: () => context.go('/analysis'),
+                  onTap: () => _showBudgetDialog(),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -1036,7 +1006,7 @@ Join me on SmartReceipt! 💪
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
-                      'All Budgets',
+                      'Set Budget',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -1048,361 +1018,325 @@ Join me on SmartReceipt! 💪
               ],
             ),
             const SizedBox(height: 24),
-            Center(
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.account_balance_wallet_outlined,
-                    size: 48,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No Budget Set',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Set a monthly budget to track your spending',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () => _showBudgetDialog(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4facfe),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      'Set Budget',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            // ✅ UI/UX Improvement: Use improved empty state
+            NoBudgetEmptyState(
+              onSetBudgetPressed: () => _showBudgetDialog(),
             ),
           ],
         ),
       );
     }
 
-    // Calculate percentage and determine color
+    // ✅ UI/UX Improvement: Use AppColors for consistency
     final percentage = (currentSpending / _monthlyBudget!) * 100;
     final remaining = _monthlyBudget! - currentSpending;
     
-    Color progressColor;
-    Color statusColor;
+    final statusText = AppColors.getBudgetStatusText(percentage);
+    final statusIconData = AppColors.getBudgetStatusIcon(percentage);
+
+    // Convert icon to string for display
     String statusIcon;
-    String statusText;
-    
-    if (percentage < 70) {
-      progressColor = Colors.green;
-      statusColor = Colors.green;
+    if (statusIconData == Icons.check_circle) {
       statusIcon = '✓';
-      statusText = 'On track';
-    } else if (percentage < 100) {
-      progressColor = Colors.orange;
-      statusColor = Colors.orange;
+    } else if (statusIconData == Icons.warning) {
       statusIcon = '⚠';
-      statusText = 'Watch spending';
     } else {
-      progressColor = Colors.red;
-      statusColor = Colors.red;
       statusIcon = '✕';
-      statusText = 'Over budget';
     }
 
     return Container(
-      margin: const EdgeInsets.all(24),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: [
+            AppColors.bottomNavBackground,
+            AppColors.bottomNavBackground.withOpacity(0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            color: AppColors.primary.withOpacity(0.25),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row with Streak
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Budget',
+                  Text(
+                    'Overview',
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white.withOpacity(0.85),
+                      letterSpacing: 0.6,
                     ),
                   ),
-                  // Streak Badge
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatShortDate(DateTime.now()),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
                   if (BudgetStreakService.getCurrentStreak() > 0) ...[
-                    const SizedBox(width: 12),
                     GestureDetector(
                       onTap: () => _showStreakInfo(),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Color(BudgetStreakService.getStreakColor(BudgetStreakService.getCurrentStreak())).withOpacity(0.15),
+                          color: Colors.white.withOpacity(0.18),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Color(BudgetStreakService.getStreakColor(BudgetStreakService.getCurrentStreak())),
-                            width: 1.5,
-                          ),
+                          border: Border.all(color: Colors.white.withOpacity(0.5)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               BudgetStreakService.getStreakEmoji(BudgetStreakService.getCurrentStreak()),
-                              style: const TextStyle(fontSize: 14),
+                              style: const TextStyle(fontSize: 13),
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              '${BudgetStreakService.getCurrentStreak()} day${BudgetStreakService.getCurrentStreak() > 1 ? 's' : ''}',
-                              style: TextStyle(
+                              '${BudgetStreakService.getCurrentStreak()}d',
+                              style: const TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Color(BudgetStreakService.getStreakColor(BudgetStreakService.getCurrentStreak())),
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
+                    const SizedBox(height: 6),
                   ],
-                ],
-              ),
-              GestureDetector(
-                onTap: () => context.go('/analysis'),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF16213e),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'All Budgets',
+                  Text(
+                    '$daysLeft days left',
                     style: TextStyle(
                       fontSize: 12,
+                      color: Colors.white.withOpacity(0.9),
                       fontWeight: FontWeight.w600,
-                      color: Colors.white,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        statusIcon,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withOpacity(0.9),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          
-          // Amount Remaining/Overspending
+          const SizedBox(height: 20),
+          Text(
+            'Balance',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.white.withOpacity(0.8),
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 6),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
                 remaining >= 0
                     ? '$currencySymbol${remaining.toStringAsFixed(2)}'
-                    : '$currencySymbol${remaining.abs().toStringAsFixed(2)}',
+                    : '-$currencySymbol${remaining.abs().toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(width: 8),
               Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  remaining >= 0 ? 'left' : 'overspending',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: remaining >= 0 ? Colors.grey[600] : Colors.red,
-                    fontWeight: remaining >= 0 ? FontWeight.normal : FontWeight.w600,
-                  ),
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      growthPercentage >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 14,
+                      color: Colors.white.withOpacity(0.85),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${growthPercentage.abs().toStringAsFixed(1)}% this month',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withOpacity(0.85),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          
-          // Spent this month
           Text(
             '$currencySymbol${currentSpending.toStringAsFixed(2)} spent this month',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey[600],
+              color: Colors.white.withOpacity(0.85),
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 16),
-          
-          // Progress Bar with Animation
-          TweenAnimationBuilder<double>(
-            duration: const Duration(milliseconds: 1000),
-            curve: Curves.easeInOut,
-            tween: Tween<double>(
-              begin: 0,
-              end: (percentage / 100).clamp(0.0, 1.0),
-            ),
-            builder: (context, value, child) {
-              return Column(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                      value: value,
-                      minHeight: 8,
-                      backgroundColor: Colors.grey[200],
-                      valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                    ),
+          const SizedBox(height: 14),
+          Builder(builder: (context) {
+            final sparklineData = ref.watch(dailySparklineDataProvider);
+            return Container(
+              height: 168,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CustomPaint(
+                  painter: _BudgetSparklinePainter(
+                    actualValues: sparklineData.actualValues,
+                    forecastValues: sparklineData.forecastValues,
+                    totalDays: sparklineData.totalDaysInMonth,
+                    todayDay: sparklineData.todayDay,
                   ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          
-          // Status and Days Left Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    statusIcon,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: statusColor,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    statusText,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: statusColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+                  child: const SizedBox.expand(),
+                ),
               ),
-              Text(
-                '$daysLeft days left',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w500,
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  String _formatShortDate(DateTime date) {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final weekday = weekdays[date.weekday - 1];
+    final month = months[date.month - 1];
+    return '$weekday, $month ${date.day}';
+  }
+
+  List<_CategorySpend> _getTopCategoriesForMonth(List<Bill> bills) {
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 1);
+    final totals = <String, double>{};
+
+    for (final bill in bills) {
+      if (bill.date == null) continue;
+      if (bill.date!.isBefore(monthStart) || !bill.date!.isBefore(monthEnd)) continue;
+      final rawCategory = bill.categoryId ??
+          (bill.tags != null && bill.tags!.isNotEmpty ? bill.tags!.first : 'Other');
+      final normalized = CategoryService.normalizeCategory(rawCategory);
+      final amount = bill.total ?? bill.subtotal ?? 0.0;
+      totals[normalized] = (totals[normalized] ?? 0.0) + amount;
+    }
+
+    final entries = totals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return entries.take(2).map((entry) {
+      return _CategorySpend(name: entry.key, total: entry.value);
+    }).toList();
+  }
+
+  // Sparkline data is now provided by dailySparklineDataProvider
+  // (daily cumulative spending + forecast for current month)
+
+  Widget _buildBudgetCategoryCard({
+    required String currencySymbol,
+    required _CategorySpend? data,
+  }) {
+    final categoryName = data?.name ?? 'Other';
+    final amount = data?.total ?? 0.0;
+    final color = CategoryService.getCategoryColor(categoryName);
+    final icon = CategoryService.getCategoryIcon(categoryName);
+    final emoji = CategoryService.getCategoryEmoji(categoryName);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Center(
+                  child: emoji != null
+                      ? Text(emoji, style: const TextStyle(fontSize: 13))
+                      : Icon(icon, size: 14, color: color),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  categoryName,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          
-          // Share Achievement Button (only show if under budget)
-          if (percentage < 100) ...[
-            const SizedBox(height: 16),
-            GestureDetector(
-              onTap: () => _shareAchievement(remaining, percentage, daysLeft),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF16213e), // Dark blue theme
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF16213e).withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.share,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '🎉 Share Your Success',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          const SizedBox(height: 4),
+          Text(
+            '$currencySymbol${amount.toStringAsFixed(2)}',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textPrimary,
             ),
-          ],
-          
-          // Debug: Start Streak Button (only in development)
-          if (percentage < 100 && BudgetStreakService.getCurrentStreak() == 0) ...[
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () async {
-                await _checkStreakAsync();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Streak started! 🔥'),
-                    backgroundColor: Colors.green,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.play_arrow,
-                      color: Colors.orange[700],
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Start Your Streak',
-                      style: TextStyle(
-                        color: Colors.orange[700],
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -1420,7 +1354,7 @@ Join me on SmartReceipt! 💪
       message = '''
 🎉 Great job! I'm crushing my budget this month!
 
-💰 ${currencySymbol}${remaining.toStringAsFixed(0)} remaining
+💰 $currencySymbol${remaining.toStringAsFixed(0)} remaining
 📊 Only ${percentage.toStringAsFixed(0)}% spent
 📅 $daysLeft days left in ${monthNames[monthName]}
 
@@ -1431,7 +1365,7 @@ I'm staying on track with SmartReceipt! 💪
       message = '''
 ✅ Staying on track with my budget!
 
-💰 ${currencySymbol}${remaining.toStringAsFixed(0)} still available
+💰 $currencySymbol${remaining.toStringAsFixed(0)} still available
 📊 ${percentage.toStringAsFixed(0)}% of budget used
 📅 $daysLeft days to go in ${monthNames[monthName]}
 
@@ -1500,6 +1434,23 @@ Managing my finances with SmartReceipt! 📱
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Text(
+            'Monthly Spending',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Tap a month to see details',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 16),
           // Header: Amount and Percentage
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1530,7 +1481,7 @@ Managing my finances with SmartReceipt! 📱
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: percentageChange >= 0
-                        ? const Color(0xFF16213e).withOpacity(0.1)
+                        ? AppColors.bottomNavBackground.withOpacity(0.1)
                         : Colors.red.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1539,14 +1490,14 @@ Managing my finances with SmartReceipt! 📱
                     children: [
                       Icon(
                         percentageChange >= 0 ? Icons.trending_up : Icons.trending_down,
-                        color: percentageChange >= 0 ? const Color(0xFF16213e) : Colors.red,
+                        color: percentageChange >= 0 ? AppColors.bottomNavBackground : Colors.red,
                         size: 16,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         '${percentageChange >= 0 ? '+' : ''}${percentageChange.toStringAsFixed(0)}%',
                         style: TextStyle(
-                          color: percentageChange >= 0 ? const Color(0xFF16213e) : Colors.red,
+                          color: percentageChange >= 0 ? AppColors.bottomNavBackground : Colors.red,
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
@@ -1582,7 +1533,7 @@ Managing my finances with SmartReceipt! 📱
                         fontSize: isSelected ? 13 : 11,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                         color: isSelected
-                            ? const Color(0xFF16213e)
+                            ? AppColors.bottomNavBackground
                             : Colors.grey[600],
                       ),
                     ),
@@ -1596,7 +1547,7 @@ Managing my finances with SmartReceipt! 📱
           
           // Bar Chart
           SizedBox(
-            height: 140,
+            height: 190,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1607,8 +1558,8 @@ Managing my finances with SmartReceipt! 📱
                 
                 // Selected bar is 20% taller to "pop out"
                 final barHeight = isSelected 
-                    ? (baseBarHeight * 1.2).clamp(4.0, 120.0)
-                    : baseBarHeight.clamp(4.0, 100.0);
+                    ? (baseBarHeight * 1.2).clamp(6.0, 170.0)
+                    : baseBarHeight.clamp(6.0, 150.0);
                 
                 return Expanded(
                   child: Padding(
@@ -1630,12 +1581,12 @@ Managing my finances with SmartReceipt! 📱
                             end: Alignment.topCenter,
                             colors: isSelected
                                 ? [
-                                    const Color(0xFF16213e), // Dark blue (footer color)
-                                    const Color(0xFF2a3f5f), // Slightly lighter blue
+                                    AppColors.bottomNavBackground,
+                                    AppColors.bottomNavBackground.withOpacity(0.65),
                                   ]
                                 : [
-                                    const Color(0xFF16213e).withOpacity(0.4),
-                                    const Color(0xFF2a3f5f).withOpacity(0.3),
+                                    AppColors.bottomNavBackground.withOpacity(0.35),
+                                    AppColors.bottomNavBackground.withOpacity(0.2),
                                   ],
                           ),
                           borderRadius: const BorderRadius.vertical(
@@ -1644,7 +1595,7 @@ Managing my finances with SmartReceipt! 📱
                           boxShadow: isSelected
                               ? [
                                   BoxShadow(
-                                    color: const Color(0xFF16213e).withOpacity(0.3),
+                                    color: AppColors.bottomNavBackground.withOpacity(0.3),
                                     blurRadius: 8,
                                     offset: const Offset(0, 2),
                                   ),
@@ -1779,7 +1730,7 @@ Managing my finances with SmartReceipt! 📱
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
+        shape: const RoundedRectangleBorder(
           borderRadius: AppTheme.largeBorderRadius,
         ),
         title: const Text(
@@ -1952,12 +1903,12 @@ Managing my finances with SmartReceipt! 📱
             ),
           ),
           const SizedBox(width: 16),
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text(
+                Text(
                   'Upgrade to Pro',
                   style: TextStyle(
                     fontSize: 16,
@@ -1967,8 +1918,8 @@ Managing my finances with SmartReceipt! 📱
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                const Text(
+                SizedBox(height: 4),
+                Text(
                   'Unlimited scans & more',
                   style: TextStyle(
                     fontSize: 12,
@@ -1999,86 +1950,107 @@ Managing my finances with SmartReceipt! 📱
   }
 
   Widget _buildCircularMenu() {
+    // When open: sub-buttons in arc — Manual above, Subscription at 60° to its right
+    const openWidth = 200.0;
+    const openHeight = 150.0;
+    const mainButtonSize = 60.0;
+    const subButtonSize = 60.0;
+    const radius = 70.0; // distance from main FAB center to sub-button centers
+
+    // Main FAB center (bottom-left of container)
+    const cx = mainButtonSize / 2;
+    const cy = openHeight - mainButtonSize / 2;
+
+    // Manual Expense: straight above main (90°)
+    const manualAngle = math.pi / 2;
+    final manualX = cx + radius * math.cos(manualAngle) - subButtonSize / 2;
+    final manualY = cy - radius * math.sin(manualAngle) - subButtonSize / 2;
+
+    // Subscription: 60° from Manual = 30° from horizontal (up-right)
+    const subscriptionAngle = math.pi / 6;
+    final subX = cx + radius * math.cos(subscriptionAngle) - subButtonSize / 2;
+    final subY = cy - radius * math.sin(subscriptionAngle) - subButtonSize / 2;
+
     return Container(
-      width: 250,
-      height: 250,
-             decoration: BoxDecoration(
-         color: Colors.transparent,
-         borderRadius: BorderRadius.circular(100),
-       ),
+      width: _isMenuOpen ? openWidth : mainButtonSize,
+      height: _isMenuOpen ? openHeight : mainButtonSize,
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(100),
+      ),
       child: Stack(
-        alignment: Alignment.center,
+        alignment: Alignment.centerLeft,
         children: [
-          // Main Plus Button
-          AnimatedRotation(
-            turns: _isMenuOpen ? 0.125 : 0.0, // 45 degree rotation when open
-            duration: const Duration(milliseconds: 200),
-        child: GestureDetector(
-          onTap: () {
-                print('🔍 Plus button tapped. Menu state before: $_isMenuOpen');
-                _toggleMenu();
-                print('🔍 Menu state after: $_isMenuOpen');
-          },
+          // Main Plus Button - always at bottom-left
+          Positioned(
+            left: 0,
+            bottom: 0,
+            child: AnimatedRotation(
+              turns: _isMenuOpen ? 0.125 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: GestureDetector(
+                onTap: () {
+                  _toggleMenu();
+                },
                 child: Container(
-                width: 60,
-                height: 60,
+                  width: mainButtonSize,
+                  height: mainButtonSize,
                   decoration: BoxDecoration(
-                  color: const Color(0xFF16213e),
+                    color: const Color(0xFF16213e),
                     shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 3,
-                  ),
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 3,
+                    ),
                     boxShadow: [
                       BoxShadow(
-                      color: const Color(0xFF16213e).withOpacity(0.4),
+                        color: const Color(0xFF16213e).withOpacity(0.4),
                         blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5),
+                        offset: const Offset(0, 10),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 5),
                       ),
                     ],
                   ),
-                child: Icon(
-                  _isMenuOpen ? Icons.close : Icons.add,
+                  child: Icon(
+                    _isMenuOpen ? Icons.close : Icons.add,
                     color: Colors.white,
-                  size: 38,
+                    size: 38,
+                  ),
                 ),
               ),
             ),
           ),
-          // Menu items - positioned in a circle when open
+          // Manual Expense: above main FAB (90°)
           ...(_isMenuOpen ? [
-            // Manual Expense - Top (0°)
             Positioned(
-              top: 10,
+              left: manualX,
+              top: manualY,
               child: _buildMenuItem(
                 'Manual\nExpense',
                 Icons.account_balance_wallet,
                 Colors.green,
                 () async {
-                  print('🔍 MAGIC HOME: Manual Expense callback executed!');
                   await _showExpenseModal('Manual Expense');
                 },
-                size: 60,
+                size: subButtonSize,
               ),
             ),
-            // Subscription - Top Right (45°)
+            // Subscription: 60° to the right of Manual (30° from horizontal, up-right)
             Positioned(
-              top: 25,
-              right: 25,
+              left: subX,
+              top: subY,
               child: _buildMenuItem(
                 'Subscription',
                 Icons.calendar_today,
                 Colors.blue,
                 () async {
-                  print('🔍 MAGIC HOME: Subscription callback executed!');
                   await _showExpenseModal('Subscription');
                 },
-                size: 60,
+                size: subButtonSize,
               ),
             ),
           ] : <Widget>[]),
@@ -2140,46 +2112,55 @@ Managing my finances with SmartReceipt! 📱
 }
   @override
   Widget build(BuildContext context) {
-        final screenWidth = MediaQuery.of(context).size.width;
-        final screenHeight = MediaQuery.of(context).size.height;
-        final bottomPadding = MediaQuery.of(context).padding.bottom;
-
-        const baseScreenWidth = 375.0; // iPhone standard width, adjust to your test device
-        const baseScreenHeight = 812.0;
-
-        final widthScale = screenWidth / baseScreenWidth;
-        final heightScale = screenHeight / baseScreenHeight;
-
-        final leftPosition = -70 * widthScale;
-        final bottomPosition = (kBottomNavigationBarHeight + bottomPadding - 140) * heightScale;
-
     return Scaffold(
           backgroundColor: Colors.white,
           appBar: _buildCustomAppBar(),
           body: Stack(
             children: [
-              SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 20),
-                    _buildSpendingAnalytics(widget.growthPercentage),
-                    _buildMonthlySpendingGraph(),
-                    // Family Budget Promo Card
-                    _buildFamilyBudgetPromo(),
-                    // Usage tracker for free users
-                    if (!PremiumService.isPremium) const UsageTracker(),
-                    _buildQuickActions(widget.achievementsCount),
-                    const SizedBox(height: 20),
-                    const SizedBox(height: 120), // Space for floating button
-                  ],
+              // ✅ UI/UX Improvement: Add pull-to-refresh
+              RefreshIndicator(
+                onRefresh: () async {
+                  // ✅ UI/UX Improvement: Refresh bill data
+                  // Force provider to rebuild by invalidating it
+                  if (mounted) {
+                    setState(() {}); // Trigger rebuild
+                  }
+                  // Small delay for visual feedback
+                  await Future.delayed(const Duration(milliseconds: 500));
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 16),
+                      _buildGreetingHeader(),
+                      const SizedBox(height: 32),
+                      _buildSectionHeader('Budget Overview'),
+                      _buildSpendingAnalytics(widget.growthPercentage),
+                      const SizedBox(height: 24),
+                      _buildSectionHeader('Monthly Trend'),
+                      _buildMonthlySpendingGraph(),
+                      _buildSectionHeader('Family Budget'),
+                      _buildFamilyBudgetPromo(),
+                      if (!PremiumService.isPremium) ...[
+                        _buildSectionHeader('Usage'),
+                        const UsageTracker(),
+                      ],
+                      _buildQuickActions(widget.achievementsCount),
+                      const SizedBox(height: 20),
+                      const SizedBox(height: 120), // Space for floating button
+                    ],
+                  ),
                 ),
               ),
-              // Positioned button on left side, 1cm above bottom navigation
+              // Circular FAB menu: 16px from left and 16px above bottom nav (same spacing)
               Positioned(
-                left: leftPosition, // 24px from left edge
-                bottom: bottomPosition, // 1cm above bottom nav
-                child: _buildCircularMenu(),
+                left: 0,
+                bottom: 16,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: _buildCircularMenu(),
+                ),
               ),
             ],
           ),
@@ -2231,6 +2212,118 @@ Managing my finances with SmartReceipt! 📱
               ),
             ],
           ),
+    );
+  }
+
+  Widget _buildGreetingHeader() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final rawName = currentUser?.displayName?.trim();
+    final name = (rawName != null && rawName.isNotEmpty) ? rawName : 'there';
+    final streak = BudgetStreakService.getCurrentStreak();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.person,
+              color: AppColors.bottomNavBackground,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hello $name!',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Here is your budget snapshot',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (streak > 0)
+            GestureDetector(
+              onTap: () => _showStreakInfo(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.bottomNavBackground.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.bottomNavBackground.withOpacity(0.25),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      BudgetStreakService.getStreakEmoji(streak),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${streak}d',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 18,
+            decoration: BoxDecoration(
+              color: AppColors.bottomNavBackground,
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
     );
   }
 //   @override
@@ -2340,4 +2433,201 @@ Managing my finances with SmartReceipt! 📱
 //     );
 //   }
 // }
+}
+
+class _CategorySpend {
+  final String name;
+  final double total;
+
+  const _CategorySpend({
+    required this.name,
+    required this.total,
+  });
+}
+
+class _BudgetSparklinePainter extends CustomPainter {
+  final List<double> actualValues;
+  final List<double> forecastValues;
+  final int totalDays;
+  final int todayDay;
+
+  // Palette — teal/mint (actual and forecast use same family, forecast at lower opacity)
+  static const _teal = Color(0xFF2EC4B6);
+  static const _mint = Color(0xFF4ECDC4);
+
+  _BudgetSparklinePainter({
+    required this.actualValues,
+    required this.forecastValues,
+    required this.totalDays,
+    required this.todayDay,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (actualValues.isEmpty && forecastValues.isEmpty) return;
+
+    final w = size.width;
+    final h = size.height;
+
+    // ── Global scaling ──
+    final allValues = [...actualValues, ...forecastValues];
+    final maxVal = allValues.reduce((a, b) => a > b ? a : b);
+    final minVal = allValues.reduce((a, b) => a < b ? a : b);
+    final range = (maxVal - minVal).abs();
+
+    Offset pt(int dayIndex, double value) {
+      final x = totalDays <= 1 ? w / 2 : w * (dayIndex / (totalDays - 1));
+      final norm = range == 0 ? 0.5 : (value - minVal) / range;
+      // Leave 8% top and 8% bottom padding so curves don't clip
+      final y = h * 0.92 - norm * h * 0.84;
+      return Offset(x, y);
+    }
+
+    // ── Build one continuous point list ──
+    final allPoints = <Offset>[];
+    for (int i = 0; i < actualValues.length; i++) {
+      allPoints.add(pt(i, actualValues[i]));
+    }
+    for (int i = 0; i < forecastValues.length; i++) {
+      allPoints.add(pt(todayDay + i, forecastValues[i]));
+    }
+    if (allPoints.length < 2) return;
+
+    final junctionIdx = actualValues.length - 1; // index where actual ends
+    final junctionX = allPoints[junctionIdx].dx;
+
+    // ── 1. Gradient fill under ACTUAL portion ──
+    if (actualValues.length >= 2) {
+      final actualPts = allPoints.sublist(0, actualValues.length);
+      final actualPath = _smooth(actualPts);
+      final fillPath = Path.from(actualPath)
+        ..lineTo(actualPts.last.dx, h)
+        ..lineTo(actualPts.first.dx, h)
+        ..close();
+
+      final fillShader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          _teal.withOpacity(0.30),
+          _mint.withOpacity(0.10),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.55, 1.0],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+
+      canvas.drawPath(fillPath, Paint()..shader = fillShader..style = PaintingStyle.fill);
+    }
+
+    // ── 2. Forecast fill: vertical (top→down) + horizontal (left→right) fading ──
+    if (forecastValues.isNotEmpty && actualValues.isNotEmpty) {
+      final fcPts = allPoints.sublist(junctionIdx);
+      final fcPath = _smooth(fcPts);
+      final fcFill = Path.from(fcPath)
+        ..lineTo(fcPts.last.dx, h)
+        ..lineTo(fcPts.first.dx, h)
+        ..close();
+
+      final fcRect = Rect.fromLTWH(junctionX, 0, w - junctionX, h);
+
+      // Draw vertical gradient fill, then apply left→right fade via mask
+      canvas.saveLayer(fcRect, Paint());
+      final verticalShader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          _teal.withOpacity(0.14),
+          _mint.withOpacity(0.06),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(fcRect);
+      canvas.drawPath(fcFill, Paint()..shader = verticalShader..style = PaintingStyle.fill);
+
+      // Left→right: keep opacity on left, fade to transparent on right
+      final horizontalMask = const LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Color(0xFFFFFFFF),
+          Color(0x00FFFFFF),
+        ],
+      ).createShader(fcRect);
+      canvas.drawRect(
+        fcRect,
+        Paint()
+          ..shader = horizontalMask
+          ..blendMode = BlendMode.dstIn,
+      );
+      canvas.restore();
+    }
+
+    // ── 3. Actual line: solid teal → mint ──
+    final lineRect = Rect.fromLTWH(0, 0, w, h);
+
+    if (actualValues.length >= 2) {
+      final actualPath = _smooth(allPoints.sublist(0, actualValues.length));
+      final actualShader = const LinearGradient(
+        colors: [_teal, _mint],
+      ).createShader(lineRect);
+
+      canvas.drawPath(
+        actualPath,
+        Paint()
+          ..shader = actualShader
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+
+    // ── 4. Forecast line: dotted, same colour as actual (teal/mint) with less opacity ──
+    if (forecastValues.isNotEmpty && actualValues.isNotEmpty) {
+      final fcPts = allPoints.sublist(junctionIdx);
+      final fcPath = _smooth(fcPts);
+      final dashPaint = Paint()
+        ..color = _mint.withOpacity(0.65)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round;
+
+      _drawDashedPath(canvas, fcPath, dashPaint);
+    }
+  }
+
+  /// Draws a dashed (dotted) path.
+  void _drawDashedPath(Canvas canvas, Path path, Paint paint) {
+    const dashLength = 5.0;
+    const gapLength = 4.0;
+    for (final metric in path.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + dashLength).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(distance, end), paint);
+        distance += dashLength + gapLength;
+      }
+    }
+  }
+
+  /// Smooth cubic-bezier path through [points].
+  Path _smooth(List<Offset> points) {
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    if (points.length == 1) return path;
+    for (int i = 1; i < points.length; i++) {
+      final p = points[i - 1];
+      final c = points[i];
+      final mx = (p.dx + c.dx) / 2;
+      path.cubicTo(mx, p.dy, mx, c.dy, c.dx, c.dy);
+    }
+    return path;
+  }
+
+  @override
+  bool shouldRepaint(covariant _BudgetSparklinePainter oldDelegate) {
+    return oldDelegate.actualValues != actualValues ||
+        oldDelegate.forecastValues != forecastValues ||
+        oldDelegate.totalDays != totalDays ||
+        oldDelegate.todayDay != todayDay;
+  }
 }

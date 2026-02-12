@@ -127,7 +127,7 @@ class UserFriendlyLoadingOverlay extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 4),
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.blue,
             shape: BoxShape.circle,
           ),
@@ -357,7 +357,7 @@ class ReceiptScanSuccess extends StatelessWidget {
           Container(
             width: 60,
             height: 60,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.green,
               shape: BoxShape.circle,
             ),

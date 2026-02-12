@@ -7,6 +7,8 @@ import '../../features/storage/bill/bill_provider.dart';
 import '../../features/storage/models/bill_model.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/currency_service.dart';
+import '../../core/services/ocr/i_ocr_service.dart';
+import '../../core/theme/app_colors.dart';
 
 class PostCapturePage extends ConsumerStatefulWidget {
   final String imagePath;
@@ -15,6 +17,7 @@ class PostCapturePage extends ConsumerStatefulWidget {
   final String? detectedCurrency;
   final DateTime? detectedDate;
   final String? detectedCategory;
+  final List<AmountCandidate>? totalCandidates;
   final bool isEditing;
   final Bill? existingBill;
 
@@ -26,6 +29,7 @@ class PostCapturePage extends ConsumerStatefulWidget {
     this.detectedCurrency,
     this.detectedDate,
     this.detectedCategory,
+    this.totalCandidates,
     this.isEditing = false,
     this.existingBill,
   });
@@ -44,18 +48,32 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
   final _notesController = TextEditingController();
   
   DateTime? _selectedDate;
-  bool _isOcrProcessing = false;
-  List<Map<String, dynamic>> _groceryItems = [];
-  bool _showOcrResults = false;
+  final bool _isOcrProcessing = false;
+  final List<Map<String, dynamic>> _groceryItems = [];
+  final bool _showOcrResults = false;
   bool _isSaving = false;
   String? _detectedCurrency;
   String? _selectedCurrency;
   String? _detectedCategory;
   String? _selectedCategory;
+  List<AmountCandidate> _totalCandidates = const [];
   
   // Settings state
   bool _isNotesEnabled = false;
   bool _isLocationEnabled = false;
+
+  /// Step 3: Low-confidence hints – show "Review suggested" when OCR result is missing or ambiguous.
+  bool get _vendorNeedsReview =>
+      !widget.isEditing &&
+      (widget.detectedTitle == null ||
+          widget.detectedTitle!.isEmpty ||
+          widget.detectedTitle!.trim().length < 3);
+  bool get _totalNeedsReview =>
+      !widget.isEditing &&
+      (widget.detectedTotal == null ||
+          (widget.totalCandidates != null && widget.totalCandidates!.length > 1));
+  bool get _dateNeedsReview =>
+      !widget.isEditing && widget.detectedDate == null;
   
   // Common currencies for manual selection
   final List<String> _commonCurrencies = [
@@ -81,6 +99,24 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     'Office Supplies',
     'Other'
   ];
+
+  /// Step 9: Map OCR-detected category (parser output) to a list item so the chip is pre-selected.
+  String? _mapDetectedCategoryToList(String? detected) {
+    if (detected == null || detected.isEmpty) return null;
+    final d = detected.trim();
+    if (_availableCategoriesList.any((c) => c == d)) return d;
+    final lower = d.toLowerCase();
+    if (lower.contains('transport')) return 'Transport & Fuel';
+    if (lower.contains('health') || lower.contains('pharmacy')) return 'Pharmacy & Health';
+    if (lower.contains('home') || lower.contains('garden') || lower.contains('furniture')) return 'Furniture & Home';
+    if (lower.contains('shopping') || lower.contains('retail')) return 'Other';
+    final firstWord = lower.split(' ').first;
+    if (firstWord.isEmpty) return null;
+    for (final c in _availableCategoriesList) {
+      if (c.toLowerCase().contains(firstWord)) return c;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -140,12 +176,13 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
       _selectedCurrency = widget.detectedCurrency ?? ref.read(currencyProvider).currencyCode;
       _selectedDate = widget.detectedDate ?? DateTime.now();
       
-      // Set detected category for automatic selection
+      // Step 9: Pre-select OCR category (map to list item so a chip is selected)
       if (widget.detectedCategory != null && widget.detectedCategory!.isNotEmpty) {
         _detectedCategory = widget.detectedCategory;
-        _selectedCategory = widget.detectedCategory;
-        _tagController.text = widget.detectedCategory!;
-        print('🔍 MAGIC POST-CAPTURE: Auto-selected category: "${widget.detectedCategory}"');
+        final listCategory = _mapDetectedCategoryToList(widget.detectedCategory);
+        _selectedCategory = listCategory ?? widget.detectedCategory;
+        _tagController.text = _selectedCategory ?? widget.detectedCategory!;
+        print('🔍 MAGIC POST-CAPTURE: Auto-selected category: "${_selectedCategory}" (from "${widget.detectedCategory}")');
       }
 
 
@@ -182,6 +219,8 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     if (_selectedCurrency == null || _selectedCurrency!.isEmpty) {
       _selectedCurrency = ref.read(currencyProvider).currencyCode;
     }
+
+    _totalCandidates = widget.totalCandidates ?? const [];
     
     // Force UI update
     if (mounted) {
@@ -226,6 +265,14 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
     }
     
     return double.tryParse(cleaned);
+  }
+
+  String _formatCandidateAmount(AmountCandidate candidate) {
+    final amount = candidate.amount.toStringAsFixed(2);
+    if (candidate.currency == null || candidate.currency!.isEmpty) {
+      return amount;
+    }
+    return '$amount ${candidate.currency}';
   }
 
   @override
@@ -543,16 +590,16 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Receipt Image Preview
+              // Receipt Image Preview (Step 10: theme colors)
               Container(
                 height: 250,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.teal.shade200, width: 2),
+                  border: Border.all(color: AppColors.bottomNavBackground, width: 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.teal.withOpacity(0.1),
+                      color: AppColors.bottomNavBackground.withOpacity(0.15),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -570,19 +617,19 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
-              // Fallback OCR Loading Indicator
+              // Fallback OCR Loading Indicator (theme colors)
               if (_isOcrProcessing && 
                   (widget.detectedTitle == null || widget.detectedTitle!.isEmpty) &&
                   (widget.detectedTotal == null))
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.teal.withOpacity(0.1),
+                    color: AppColors.bottomNavBackground.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                    border: Border.all(color: AppColors.bottomNavBackground.withOpacity(0.3)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.teal.withOpacity(0.05),
+                        color: AppColors.bottomNavBackground.withOpacity(0.06),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -595,7 +642,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.teal.shade600),
+                          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -603,7 +650,7 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                         child: Text(
                           'Analyzing receipt...',
                           style: TextStyle(
-                            color: Colors.teal.shade700,
+                            color: AppColors.bottomNavBackground,
                             fontWeight: FontWeight.w600,
                             fontSize: 16,
                           ),
@@ -614,13 +661,13 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                 ),
               
               
-              // Basic Information
+              // Basic Information (theme color)
               Text(
                 'Receipt Information',
                 style: TextStyle(
                   fontSize: 18, 
                   fontWeight: FontWeight.bold,
-                  color: Colors.teal.shade700,
+                  color: AppColors.bottomNavBackground,
                 ),
               ),
               const SizedBox(height: 16),
@@ -628,10 +675,16 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               // Title/Company Name
               TextFormField(
                 controller: _titleController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Store/Company Name *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.store),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.store),
+                  helperText: _vendorNeedsReview ? 'Review suggested' : null,
+                  helperStyle: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -721,6 +774,12 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                               horizontal: isVerySmallScreen ? 8 : 12,
                               vertical: isVerySmallScreen ? 12 : 16,
                             ),
+                            helperText: _totalNeedsReview ? 'Review suggested' : null,
+                            helperStyle: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontStyle: FontStyle.italic,
+                            ),
                           ),
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           validator: (value) {
@@ -741,6 +800,41 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
+              if (_totalCandidates.isNotEmpty) ...[
+                Text(
+                  'Suggested Totals',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _totalCandidates.map((candidate) {
+                    return ActionChip(
+                      label: Text(
+                        _formatCandidateAmount(candidate),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _totalController.text = candidate.amount.toStringAsFixed(2);
+                          if (candidate.currency != null && candidate.currency!.isNotEmpty) {
+                            _selectedCurrency = candidate.currency;
+                          }
+                        });
+                      },
+                      backgroundColor: Colors.blue.shade50,
+                      labelStyle: TextStyle(color: Colors.blue.shade800),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+              ],
+              
               // Date
               InkWell(
                 onTap: _selectDate,
@@ -749,6 +843,12 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
                     labelText: 'Date',
                     border: const OutlineInputBorder(),
                     prefixIcon: const Icon(Icons.calendar_today),
+                    helperText: _dateNeedsReview ? 'Review suggested' : null,
+                    helperStyle: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
                   child: Text(
                     _selectedDate != null
@@ -777,13 +877,28 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
               
               const SizedBox(height: 16),
               
+              // Step 9: Hint when category was detected – confirm or change
+              if (!widget.isEditing && _detectedCategory != null && _detectedCategory!.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Detected: $_detectedCategory. Confirm or change below.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+              
               // Category selection chips (Responsive)
               LayoutBuilder(
                 builder: (context, constraints) {
                   final screenWidth = constraints.maxWidth;
                   final isVerySmallScreen = screenWidth < 320;
                   
-                  return Container(
+                  return SizedBox(
                     height: isVerySmallScreen ? 50 : 60,
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,

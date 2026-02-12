@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'lib/core/services/ocr/mlkit_ocr_service.dart';
-import 'lib/core/services/ocr/parcer/receipt_parser.dart';
 import 'lib/core/services/ocr/parcer/helpers/regex_util.dart';
 
 void main() async {

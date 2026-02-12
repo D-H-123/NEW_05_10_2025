@@ -31,7 +31,10 @@ GoRoute(
 ),
 GoRoute(
   path: '/bills',
-  builder: (context, state) => const BillsPage(),
+  builder: (context, state) {
+    final initialCategory = state.extra is String ? state.extra as String? : null;
+    return BillsPage(initialCategoryId: initialCategory);
+  },
 ),
 GoRoute(
   path: '/settings',
@@ -72,6 +75,7 @@ GoRoute(path: '/post-capture', builder: (context, state) {
       detectedCurrency: args['detectedCurrency'],
       detectedDate: args['detectedDate'],
       detectedCategory: args['detectedCategory'],
+      totalCandidates: args['totalCandidates'],
       isEditing: args['isEditing'] ?? false,
       existingBill: args['existingBill'],
     );

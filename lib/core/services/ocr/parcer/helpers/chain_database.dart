@@ -1889,4 +1889,73 @@ class ChainDatabase {
     
     return line;
   }
+
+  /// Normalize a detected vendor name to a canonical chain name when possible.
+  /// Examples: "REWE CITY" -> "REWE", "ALDI SÜD" -> "ALDI"
+  static String normalizeVendorName(String vendorName) {
+    if (vendorName.isEmpty) return vendorName;
+
+    final cleaned = _cleanVendorName(vendorName);
+
+    // Direct chain match
+    if (chains.containsKey(cleaned)) {
+      return chains[cleaned]!.name;
+    }
+
+    // Match against variations
+    for (final entry in chains.entries) {
+      final chain = entry.value;
+      for (final variation in chain.variations) {
+        if (_cleanVendorName(variation) == cleaned) {
+          return chain.name;
+        }
+      }
+    }
+
+    // Strip common branch/location suffixes and try again
+    final stripped = _stripBranchSuffixes(cleaned);
+    if (stripped != cleaned && chains.containsKey(stripped)) {
+      return chains[stripped]!.name;
+    }
+
+    // Try variations with stripped name
+    for (final entry in chains.entries) {
+      final chain = entry.value;
+      for (final variation in chain.variations) {
+        if (_cleanVendorName(variation) == stripped) {
+          return chain.name;
+        }
+      }
+    }
+
+    return vendorName;
+  }
+
+  static String _stripBranchSuffixes(String name) {
+    String result = name;
+    const suffixes = [
+      ' CITY',
+      ' MARKET',
+      ' MARKT',
+      ' EXPRESS',
+      ' SUPER',
+      ' SUPERMARKET',
+      ' STORE',
+      ' STORES',
+      ' SOUTH',
+      ' NORTH',
+      ' SUD',
+      ' NORD',
+      ' TO GO',
+      ' LOCAL',
+    ];
+
+    for (final suffix in suffixes) {
+      if (result.endsWith(suffix)) {
+        result = result.substring(0, result.length - suffix.length).trim();
+      }
+    }
+
+    return result;
+  }
 }

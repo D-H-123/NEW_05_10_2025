@@ -552,7 +552,7 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
     );
   }
 
-  void _handleSubmit() {
+  Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -584,7 +584,10 @@ class _DynamicExpenseModalState extends State<DynamicExpenseModal> {
         break;
     }
 
-    widget.onSubmit(formData);
+    await widget.onSubmit(formData);
+    if (!mounted) {
+      return;
+    }
     Navigator.pop(context);
   }
 

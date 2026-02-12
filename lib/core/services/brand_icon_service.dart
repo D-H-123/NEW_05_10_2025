@@ -180,9 +180,7 @@ class BrandIconService {
     IconData? iconData = _brandIcons[normalizedName];
     
     // If no exact match, try partial matching for common patterns
-    if (iconData == null) {
-      iconData = _findPartialMatch(normalizedName);
-    }
+    iconData ??= _findPartialMatch(normalizedName);
     
     // If still no match, try category-based icon
     if (iconData == null && category != null) {

@@ -54,7 +54,7 @@ class _SimpleEdgeDetectionDialogState extends State<SimpleEdgeDetectionDialog> {
               ),
               child: Column(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.crop_free,
                     color: Colors.blue,
                     size: 28, // Reduced from 32

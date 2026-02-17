@@ -96,6 +96,7 @@ class NoBillsEmptyState extends StatelessWidget {
       title: 'No receipts saved yet',
       message: 'Start scanning receipts or create manual entries\nto see them organized here.',
       icon: Icons.receipt_long_outlined,
+      iconColor: AppColors.primaryDarkBlue,
       actions: [
         if (onScanPressed != null || onManualEntryPressed != null)
           Row(
@@ -107,7 +108,7 @@ class NoBillsEmptyState extends StatelessWidget {
                   icon: const Icon(Icons.camera_alt, size: 18),
                   label: const Text('Scan Receipt'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: AppColors.primaryDarkBlue,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     shape: RoundedRectangleBorder(
@@ -121,7 +122,7 @@ class NoBillsEmptyState extends StatelessWidget {
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Manual Entry'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.success,
+                    backgroundColor: AppColors.primaryDarkBlue,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     shape: RoundedRectangleBorder(
@@ -151,13 +152,13 @@ class NoBudgetEmptyState extends StatelessWidget {
       title: 'No Budget Set',
       message: 'Set a monthly budget to track your spending\nand stay on top of your finances.',
       icon: Icons.account_balance_wallet_outlined,
-      iconColor: Colors.blue,
+      iconColor: AppColors.primaryDarkBlue,
       actions: [
         if (onSetBudgetPressed != null)
           ElevatedButton(
             onPressed: onSetBudgetPressed,
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
+              backgroundColor: AppColors.primaryDarkBlue,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
               shape: RoundedRectangleBorder(

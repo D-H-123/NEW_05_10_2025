@@ -17,10 +17,12 @@ import '../../core/services/currency_service.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/personal_subscription_reminder_service.dart';
 import '../../core/services/budget_streak_service.dart';
+import '../../core/services/budget_notification_service.dart';
 import '../../core/services/category_service.dart';
 import '../collaboration/budget_collaboration_page.dart';
 import 'home_spending_providers.dart';
 import '../../core/widgets/empty_state_widget.dart';
+import '../../core/widgets/monthly_budget_dialog.dart';
 import '../../core/theme/app_colors.dart';
 
 class HomePage extends ConsumerStatefulWidget {
@@ -46,9 +48,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
   }
 
-  // ✅ Optimized: Use memoized provider instead of recalculating
+  // ✅ Display currency: converted via ExchangeRateService at display time
   double _calculateCurrentMonthSpending() {
-    return ref.watch(currentMonthSpendingProvider);
+    return ref.watch(currentMonthSpendingProvider).valueOrNull ?? 0.0;
   }
 
   int _getDaysLeftInMonth() {
@@ -57,302 +59,31 @@ class _HomePageState extends ConsumerState<HomePage> {
     return lastDayOfMonth.day - now.day;
   }
 
-  // ✅ Optimized: Use memoized provider instead of recalculating
+  // ✅ Display currency: converted monthly totals
   Map<int, double> _getMonthlySpending() {
-    return ref.watch(currentYearMonthlySpendingProvider);
+    return ref.watch(currentYearMonthlySpendingProvider).valueOrNull ??
+        <int, double>{};
   }
 
-  // ✅ Optimized: Use memoized provider instead of recalculating
+  // ✅ Display currency: percentage change from converted amounts
   double _calculatePercentageChange(int selectedMonth) {
-    return ref.watch(monthlyPercentageChangeProvider(selectedMonth));
+    return ref.watch(monthlyPercentageChangeProvider(selectedMonth))
+            .valueOrNull ??
+        0.0;
   }
 
   void _showBudgetDialog() {
-    double currentValue = _monthlyBudget ?? 500;
-    if (currentValue < 100) currentValue = 100;
-    if (currentValue > 99999) currentValue = 99999;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          void setPresetBudget(double amount) {
-            setDialogState(() {
-              currentValue = amount;
-            });
-          }
-
-          return AlertDialog(
-            shape: const RoundedRectangleBorder(
-              borderRadius: AppTheme.largeBorderRadius,
-            ),
-            title: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.account_balance_wallet,
-                    color: Colors.blue,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Monthly Budget',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Set your monthly spending goal to track your expenses.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  
-                  // Budget Display with Slider
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.blue.withOpacity(0.3), width: 2),
-                      borderRadius: AppTheme.mediumBorderRadius,
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _getCurrencySymbol(_selectedCurrency),
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              currentValue.toStringAsFixed(0),
-                              style: const TextStyle(
-                                fontSize: 48,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            activeTrackColor: Colors.blue,
-                            inactiveTrackColor: Colors.grey[300],
-                            thumbColor: Colors.blue,
-                            overlayColor: Colors.blue.withOpacity(0.2),
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
-                            trackHeight: 4,
-                          ),
-                          child: Slider(
-                            value: currentValue,
-                            min: 100,
-                            max: 99999,
-                            divisions: 999,
-                            onChanged: (value) {
-                              setDialogState(() {
-                                currentValue = value;
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  
-                  // Quick Presets Label
-                  const Text(
-                    'Quick Presets',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Preset Buttons
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildPresetButton('\$500', 500, setPresetBudget),
-                      _buildPresetButton('\$1K', 1000, setPresetBudget),
-                      _buildPresetButton('\$2K', 2000, setPresetBudget),
-                      _buildPresetButton('\$3K', 3000, setPresetBudget),
-                      _buildPresetButton('\$4K', 4000, setPresetBudget),
-                      _buildPresetButton('\$5K', 5000, setPresetBudget),
-                      _buildPresetButton('\$10K', 10000, setPresetBudget),
-                      _buildPresetButton('\$15K', 15000, setPresetBudget),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Info text
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.05),
-                      borderRadius: AppTheme.smallBorderRadius,
-                      border: Border.all(color: Colors.blue.withOpacity(0.1)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 16,
-                          color: Colors.blue[700],
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Min: \$100 • Max: \$99,999',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue[700],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(color: Colors.blue),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      if (_monthlyBudget != null)
-                        TextButton(
-                          onPressed: () async {
-                            await LocalStorageService.setDoubleSetting(
-                              LocalStorageService.kMonthlyBudget,
-                              0,
-                            );
-                            setState(() {
-                              _monthlyBudget = null;
-                            });
-                            if (mounted) {
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Budget cleared'),
-                                  backgroundColor: Colors.orange,
-                                ),
-                              );
-                            }
-                          },
-                          child: const Text(
-                            'Clear',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: () async {
-                          await LocalStorageService.setDoubleSetting(
-                            LocalStorageService.kMonthlyBudget,
-                            currentValue,
-                          );
-                          setState(() {
-                            _monthlyBudget = currentValue;
-                          });
-                          if (mounted) {
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Monthly budget set to ${_getCurrencySymbol(_selectedCurrency)}${currentValue.toStringAsFixed(0)}',
-                                ),
-                                backgroundColor: AppTheme.successColor,
-                              ),
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF16213e),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text(
-                          'Save',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildPresetButton(String label, double value, Function(double) onPressed) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => onPressed(value),
-        borderRadius: AppTheme.smallBorderRadius,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: AppTheme.smallBorderRadius,
-            border: Border.all(color: Colors.blue.withOpacity(0.3)),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.blue,
-            ),
-          ),
-        ),
-      ),
+    MonthlyBudgetDialog.show(
+      context,
+      ref,
+      onSaved: () {
+        if (mounted) {
+          setState(() {
+            _monthlyBudget = LocalStorageService.getDoubleSetting(
+                LocalStorageService.kMonthlyBudget);
+          });
+        }
+      },
     );
   }
 
@@ -377,6 +108,17 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (_monthlyBudget != null && _monthlyBudget! > 0) {
       Future.microtask(() {
         if (mounted) _checkStreakAsync();
+      });
+      // Check budget alert (80% / 100%) on home load so user gets alert if already over threshold
+      Future.microtask(() async {
+        if (!mounted) return;
+        final spending = await ref.read(currentMonthSpendingProvider.future);
+        final symbol = ref.read(currencyProvider.notifier).symbolFor(ref.read(currencyProvider).currencyCode);
+        await BudgetNotificationService.checkAndSendThresholdAlerts(
+          currentSpending: spending,
+          budget: _monthlyBudget!,
+          currencySymbol: symbol,
+        );
       });
     }
   }
@@ -875,6 +617,19 @@ Join me on SmartReceipt! 💪
               
               // Save the bill to database
               ref.read(billProvider.notifier).addBill(bill);
+
+              // Check budget alert (80% / 100%) and send notification if enabled
+              ref.invalidate(currentMonthSpendingProvider);
+              final spending = await ref.read(currentMonthSpendingProvider.future);
+              final budget = LocalStorageService.getDoubleSetting(LocalStorageService.kMonthlyBudget);
+              if (budget != null && budget > 0 && mounted) {
+                final symbol = ref.read(currencyProvider.notifier).symbolFor(ref.read(currencyProvider).currencyCode);
+                await BudgetNotificationService.checkAndSendThresholdAlerts(
+                  currentSpending: spending,
+                  budget: budget,
+                  currencySymbol: symbol,
+                );
+              }
               
               // If this is a subscription, schedule reminders
               if (isSubscription) {
@@ -986,36 +741,13 @@ Join me on SmartReceipt! 💪
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Budget',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () => _showBudgetDialog(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF16213e),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Set Budget',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+            const Text(
+              'Budget',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey,
+              ),
             ),
             const SizedBox(height: 24),
             // ✅ UI/UX Improvement: Use improved empty state
@@ -1096,38 +828,6 @@ Join me on SmartReceipt! 💪
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (BudgetStreakService.getCurrentStreak() > 0) ...[
-                    GestureDetector(
-                      onTap: () => _showStreakInfo(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.18),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withOpacity(0.5)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              BudgetStreakService.getStreakEmoji(BudgetStreakService.getCurrentStreak()),
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${BudgetStreakService.getCurrentStreak()}d',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                  ],
                   Text(
                     '$daysLeft days left',
                     style: TextStyle(
@@ -1221,7 +921,19 @@ Join me on SmartReceipt! 💪
           ),
           const SizedBox(height: 14),
           Builder(builder: (context) {
-            final sparklineData = ref.watch(dailySparklineDataProvider);
+            final asyncSparkline = ref.watch(dailySparklineDataProvider);
+            final now = DateTime.now();
+            final totalDaysInMonth =
+                DateTime(now.year, now.month + 1, 0).day;
+            final today = now.day;
+            final sparklineData = asyncSparkline.valueOrNull ??
+                DailySparklineData(
+                  actualValues: List.filled(today, 0.0),
+                  forecastValues:
+                      List.filled(totalDaysInMonth - today, 0.0),
+                  totalDaysInMonth: totalDaysInMonth,
+                  todayDay: today,
+                );
             return Container(
               height: 168,
               padding: const EdgeInsets.symmetric(horizontal: 4),

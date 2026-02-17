@@ -1,75 +1,82 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../features/storage/bill/bill_provider.dart';
 
-/// ✅ Optimized: Memoized provider for current month spending
-final currentMonthSpendingProvider = Provider<double>((ref) {
+import '../../core/services/currency_service.dart';
+import '../../core/services/exchange_rate_service.dart';
+import '../storage/bill/bill_provider.dart';
+
+/// Current month spending in display currency (converted at display time).
+final currentMonthSpendingProvider = FutureProvider<double>((ref) async {
   final bills = ref.watch(billProvider);
+  final displayCurrency = ref.watch(currencyProvider).currencyCode;
   final now = DateTime.now();
   final currentMonth = DateTime(now.year, now.month);
   final nextMonth = DateTime(now.year, now.month + 1);
+  final service = ExchangeRateService.instance;
 
-  return bills
-      .where((bill) =>
-          bill.date != null &&
-          bill.date!.isAfter(currentMonth.subtract(const Duration(days: 1))) &&
-          bill.date!.isBefore(nextMonth))
-      .fold<double>(0.0, (sum, bill) => sum + (bill.total ?? 0.0));
+  double total = 0.0;
+  for (final bill in bills) {
+    if (bill.date == null) continue;
+    if (!bill.date!.isAfter(currentMonth.subtract(const Duration(days: 1))) ||
+        !bill.date!.isBefore(nextMonth)) continue;
+    final converted = await service.convert(
+      bill.total ?? 0.0,
+      bill.currency ?? 'USD',
+      displayCurrency,
+    );
+    total += converted;
+  }
+  return total;
 });
 
-/// ✅ Optimized: Memoized provider for monthly spending by year
-final monthlySpendingProvider = Provider.family<Map<int, double>, int>((ref, year) {
+/// Monthly spending by year in display currency (converted at display time).
+final monthlySpendingProvider =
+    FutureProvider.family<Map<int, double>, int>((ref, year) async {
   final bills = ref.watch(billProvider);
+  final displayCurrency = ref.watch(currencyProvider).currencyCode;
+  final service = ExchangeRateService.instance;
   final monthlyTotals = <int, double>{};
-
-  // Initialize all months from Jan to current month with 0
   for (int month = 1; month <= 12; month++) {
     monthlyTotals[month] = 0.0;
   }
 
-  // Calculate spending for each month
   for (final bill in bills) {
-    if (bill.date != null && bill.date!.year == year) {
-      final month = bill.date!.month;
-      monthlyTotals[month] = (monthlyTotals[month] ?? 0.0) + (bill.total ?? 0.0);
-    }
+    if (bill.date == null || bill.date!.year != year) continue;
+    final month = bill.date!.month;
+    final converted = await service.convert(
+      bill.total ?? 0.0,
+      bill.currency ?? 'USD',
+      displayCurrency,
+    );
+    monthlyTotals[month] = (monthlyTotals[month] ?? 0.0) + converted;
   }
-
   return monthlyTotals;
 });
 
-/// ✅ Optimized: Provider for current year's monthly spending
-final currentYearMonthlySpendingProvider = Provider<Map<int, double>>((ref) {
-  return ref.watch(monthlySpendingProvider(DateTime.now().year));
+/// Current year's monthly spending (converted).
+final currentYearMonthlySpendingProvider =
+    FutureProvider<Map<int, double>>((ref) async {
+  return ref.watch(monthlySpendingProvider(DateTime.now().year).future);
 });
 
-/// ✅ Optimized: Provider for percentage change between months
-final monthlyPercentageChangeProvider = Provider.family<double, int>((ref, selectedMonth) {
-  final monthlySpending = ref.watch(currentYearMonthlySpendingProvider);
+/// Percentage change between months (uses converted amounts).
+final monthlyPercentageChangeProvider =
+    FutureProvider.family<double, int>((ref, selectedMonth) async {
+  final monthlySpending =
+      await ref.watch(currentYearMonthlySpendingProvider.future);
   final currentAmount = monthlySpending[selectedMonth + 1] ?? 0.0;
-  
-  if (selectedMonth == 0) return 0.0; // No previous month for January
-  
+  if (selectedMonth == 0) return 0.0;
   final previousAmount = monthlySpending[selectedMonth] ?? 0.0;
-  
   if (previousAmount == 0) {
     return currentAmount > 0 ? 100.0 : 0.0;
   }
-  
   return ((currentAmount - previousAmount) / previousAmount) * 100;
 });
 
-/// Data class for daily sparkline (actual spending + forecast)
+/// Data class for daily sparkline (actual spending + forecast) in display currency.
 class DailySparklineData {
-  /// Actual spending amount for each day from day 1 to today (length = todayDay)
   final List<double> actualValues;
-
-  /// Projected spending amount for each remaining day (today+1 to end of month)
   final List<double> forecastValues;
-
-  /// Total number of days in the current month
   final int totalDaysInMonth;
-
-  /// Today's day-of-month (1-based)
   final int todayDay;
 
   const DailySparklineData({
@@ -80,25 +87,27 @@ class DailySparklineData {
   });
 }
 
-/// Provider that builds daily (per-day) spending for the current month
-/// and projects a forecast for remaining days using previous month's daily amounts.
-///
-/// Both actual and forecast are per-day values (e.g. day 2 shows 100, not 150).
-final dailySparklineDataProvider = Provider<DailySparklineData>((ref) {
+/// Daily sparkline data with amounts converted to display currency.
+final dailySparklineDataProvider = FutureProvider<DailySparklineData>((ref) async {
   final bills = ref.watch(billProvider);
+  final displayCurrency = ref.watch(currencyProvider).currencyCode;
+  final service = ExchangeRateService.instance;
   final now = DateTime.now();
   final today = now.day;
   final totalDaysInMonth = DateTime(now.year, now.month + 1, 0).day;
 
-  // ── Step 1: Actual spending per day (current month, day 1 → today) ──
   final dailySpending = List<double>.filled(totalDaysInMonth + 1, 0.0);
   for (final bill in bills) {
-    if (bill.date != null &&
-        bill.date!.year == now.year &&
-        bill.date!.month == now.month &&
-        bill.date!.day <= today) {
-      dailySpending[bill.date!.day] += (bill.total ?? 0.0);
-    }
+    if (bill.date == null ||
+        bill.date!.year != now.year ||
+        bill.date!.month != now.month ||
+        bill.date!.day > today) continue;
+    final converted = await service.convert(
+      bill.total ?? 0.0,
+      bill.currency ?? 'USD',
+      displayCurrency,
+    );
+    dailySpending[bill.date!.day] += converted;
   }
 
   final actualValues = <double>[];
@@ -106,24 +115,24 @@ final dailySparklineDataProvider = Provider<DailySparklineData>((ref) {
     actualValues.add(dailySpending[day]);
   }
 
-  // ── Step 2: Previous month's actual spending per day (day 1 .. daysInPrevMonth) ──
   final prevMonth = now.month == 1 ? 12 : now.month - 1;
   final prevYear = now.month == 1 ? now.year - 1 : now.year;
   final daysInPrevMonth = DateTime(prevYear, prevMonth + 1, 0).day;
-
   final prevMonthDailySpending = List<double>.filled(daysInPrevMonth + 1, 0.0);
   for (final bill in bills) {
-    if (bill.date != null &&
-        bill.date!.year == prevYear &&
-        bill.date!.month == prevMonth) {
-      final d = bill.date!.day;
-      if (d >= 1 && d <= daysInPrevMonth) {
-        prevMonthDailySpending[d] += (bill.total ?? 0.0);
-      }
-    }
+    if (bill.date == null ||
+        bill.date!.year != prevYear ||
+        bill.date!.month != prevMonth) continue;
+    final d = bill.date!.day;
+    if (d < 1 || d > daysInPrevMonth) continue;
+    final converted = await service.convert(
+      bill.total ?? 0.0,
+      bill.currency ?? 'USD',
+      displayCurrency,
+    );
+    prevMonthDailySpending[d] += converted;
   }
 
-  // ── Step 3: Forecast = per-day amount from previous month (day N → prev month day N) ──
   final forecastValues = <double>[];
   for (int day = today + 1; day <= totalDaysInMonth; day++) {
     final prevDay = day <= daysInPrevMonth ? day : daysInPrevMonth;
@@ -137,4 +146,3 @@ final dailySparklineDataProvider = Provider<DailySparklineData>((ref) {
     todayDay: today,
   );
 });
-

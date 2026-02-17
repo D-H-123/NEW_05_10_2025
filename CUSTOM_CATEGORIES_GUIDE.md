@@ -308,11 +308,12 @@ CategoryService.isCustomCategory(categoryName)
 
 Potential features in future versions:
 - 🔄 Cloud sync for custom categories
-- 📤 Export/import custom categories
+- add last 3 year in donut charts and last 3 months.
+family budget 
 - 🎨 Custom emoji upload (image-based icons)
 - 🔍 More granular keyword matching rules
-- 📊 Usage statistics per category
-- 🏷️ Category groups/hierarchies
+- 
+- 
 - 🌐 Multi-language keyword support
 
 ## Support

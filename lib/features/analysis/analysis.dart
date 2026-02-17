@@ -2,12 +2,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:smart_receipt/core/services/analytics_repository.dart';
-import 'package:smart_receipt/features/storage/models/bill_model.dart';
+import 'package:smart_receipt/core/services/currency_service.dart';
+import 'package:smart_receipt/core/services/exchange_rate_service.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
 import 'package:smart_receipt/core/services/category_service.dart';
 import 'package:smart_receipt/core/theme/app_colors.dart';
 import 'package:smart_receipt/core/widgets/modern_widgets.dart';
 import 'package:smart_receipt/core/widgets/skeleton_loader.dart';
+import 'package:smart_receipt/features/storage/models/bill_model.dart';
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -23,11 +25,16 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   late final AnalyticsRepository _analyticsRepository;
   List<Bill> _filteredBills = [];
   bool _isLoading = false;
-  
-  // Analytics data
+
+  /// Display currency (from profile); all displayed totals are converted to this.
+  String _displayCurrency = 'USD';
+
+  // Analytics data (converted to _displayCurrency at display time)
   double _totalSpent = 0.0;
   double _previousTotal = 0.0;
   double _percentageChange = 0.0;
+  Map<String, double> _categoryTotalsConverted = {};
+  Map<String, double> _byVendorConverted = {};
 
   /// Hovered segment index for donut chart (web/desktop); null when not hovering.
   int? _chartHoveredSegmentIndex;
@@ -51,22 +58,45 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   void _fetchBills() async {
     setState(() => _isLoading = true);
     final filter = TimeFilter.values[_selectedTimeFilter];
-    
+    final displayCurrency = LocalStorageService.getStringSetting(
+          LocalStorageService.kCurrencyCode) ??
+        'USD';
+
     try {
-      // ✅ Performance: Fetch all needed data in parallel, avoiding redundant calls
       final results = await Future.wait([
         _analyticsRepository.getBills(filter: filter),
         _analyticsRepository.getPreviousPeriodBills(filter),
       ]);
-      
       final bills = results[0];
       final previousBills = results[1];
-      
-      // ✅ Performance: Calculate totals synchronously (fast)
-      final totalSpent = bills.fold<double>(0.0, (sum, bill) => sum + (bill.total ?? 0.0));
-      final previousTotal = previousBills.fold<double>(0.0, (sum, bill) => sum + (bill.total ?? 0.0));
-      
-      // ✅ Performance: Calculate percentage change locally (fast)
+      final service = ExchangeRateService.instance;
+
+      // Convert each bill to display currency and sum (display-time conversion only)
+      double totalSpent = 0.0;
+      final categoryTotals = <String, double>{};
+      final byVendor = <String, double>{};
+      for (final bill in bills) {
+        final converted = await service.convert(
+          bill.total ?? 0.0,
+          bill.currency ?? 'USD',
+          displayCurrency,
+        );
+        totalSpent += converted;
+        final cat = bill.categoryId ?? 'Uncategorized';
+        categoryTotals[cat] = (categoryTotals[cat] ?? 0.0) + converted;
+        final v = (bill.vendor ?? 'Unknown').trim().isEmpty ? 'Unknown' : (bill.vendor ?? 'Unknown');
+        byVendor[v] = (byVendor[v] ?? 0.0) + converted;
+      }
+
+      double previousTotal = 0.0;
+      for (final bill in previousBills) {
+        previousTotal += await service.convert(
+          bill.total ?? 0.0,
+          bill.currency ?? 'USD',
+          displayCurrency,
+        );
+      }
+
       double percentageChange = 0.0;
       if (previousTotal == 0 && totalSpent > 0) {
         percentageChange = 100.0;
@@ -74,20 +104,22 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
         percentageChange = ((totalSpent - previousTotal) / previousTotal) * 100;
       }
       percentageChange = double.parse(percentageChange.toStringAsFixed(1));
-      
+
+      if (!mounted) return;
       setState(() {
         _filteredBills = bills;
+        _displayCurrency = displayCurrency;
         _totalSpent = totalSpent;
         _previousTotal = previousTotal;
         _percentageChange = percentageChange;
+        _categoryTotalsConverted = categoryTotals;
+        _byVendorConverted = byVendor;
         _isLoading = false;
       });
-      
     } catch (e) {
-      print('Error fetching analytics data: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -329,7 +361,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                   ),
                 ),
                 Text(
-                  '\$${_previousTotal.toStringAsFixed(2)}',
+                  '${CurrencyNotifier.symbolForCode(_displayCurrency)}${_previousTotal.toStringAsFixed(2)}',
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
@@ -365,7 +397,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${isUp ? '+' : ''}\$${deltaAbs.toStringAsFixed(2)} from ${_getPeriodText()}',
+                      '${isUp ? '+' : ''}${CurrencyNotifier.symbolForCode(_displayCurrency)}${deltaAbs.toStringAsFixed(2)} from ${_getPeriodText()}',
                       style: TextStyle(
                         fontSize: 13,
                         color: trendColor,
@@ -425,19 +457,16 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     }
   }
 
-  /// This period in receipts: receipt count, categories, top merchants (Suggestion 10).
+  /// This period in receipts: receipt count, categories, top merchants (converted amounts).
   Widget _buildReceiptStorySection() {
     if (_filteredBills.isEmpty) return const SizedBox.shrink();
 
     final receiptCount = _filteredBills.length;
     final Set<String> categories = {};
-    final Map<String, double> byVendor = {};
     for (var bill in _filteredBills) {
       categories.add(bill.categoryId ?? 'Uncategorized');
-      final v = (bill.vendor ?? 'Unknown').trim().isEmpty ? 'Unknown' : (bill.vendor ?? 'Unknown');
-      byVendor[v] = (byVendor[v] ?? 0.0) + (bill.total ?? 0.0);
     }
-    final topVendors = byVendor.entries.toList()
+    final topVendors = _byVendorConverted.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final top3 = topVendors.take(3).map((e) => e.key).toList();
     final periodLabel = _selectedTimeFilter == 0
@@ -540,13 +569,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   }
 
   Widget _buildSpendingTrendChart() {
-    // Group bills by category and sum totals
-    final Map<String, double> categoryTotals = {};
-    for (var bill in _filteredBills) {
-      final category = bill.categoryId ?? 'Uncategorized';
-      categoryTotals[category] = (categoryTotals[category] ?? 0.0) + (bill.total ?? 0.0);
-    }
-    final allCategories = categoryTotals.entries.toList()
+    final allCategories = _categoryTotalsConverted.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     return Container(
@@ -596,13 +619,13 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF4facfe).withOpacity(0.08),
+                            color: AppColors.primaryDarkBlue.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(24),
                           ),
                           child: Icon(
                             Icons.receipt_long_outlined,
                             size: 40,
-                            color: const Color(0xFF4facfe).withOpacity(0.8),
+                            color: AppColors.primaryDarkBlue,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -633,7 +656,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                           icon: const Icon(Icons.camera_alt, size: 18),
                           label: const Text('Scan receipt', style: TextStyle(fontSize: 14)),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF4facfe),
+                            backgroundColor: AppColors.primaryDarkBlue,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                             shape: RoundedRectangleBorder(
@@ -673,11 +696,22 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
 
     const double chartSize = 280;
     const double strokeWidth = 36;
-    const double gapDeg = 8; // clear visible gap between segments
+    const double gapDeg = 5; // gap between segments (slightly reduced)
+    const double minSegmentPercent = 4.0;
 
-    // Build segment data
+    // Only draw segments >= minSegmentPercent; distribute space so gaps stay equal
+    final visibleEntries = allCategories
+        .where((e) => (e.value / totalSpent) * 100 >= minSegmentPercent)
+        .toList();
+    final visibleTotal = visibleEntries.isEmpty
+        ? totalSpent
+        : visibleEntries.fold(0.0, (sum, e) => sum + e.value);
+    final entriesForChart = visibleEntries.isEmpty ? allCategories : visibleEntries;
+    final totalForChart = visibleEntries.isEmpty ? totalSpent : visibleTotal;
+
+    // Build segment data from visible entries only (angles use totalForChart)
     final segments = <_DonutSegment>[];
-    for (final entry in allCategories) {
+    for (final entry in entriesForChart) {
       final info = CategoryService.getCategoryInfo(entry.key);
       segments.add(_DonutSegment(
         value: entry.value,
@@ -694,7 +728,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
             event.localPosition,
             Size(chartSize, chartSize),
             segments,
-            totalSpent,
+            totalForChart,
             strokeWidth,
             gapDeg,
           );
@@ -714,12 +748,12 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
               details.localPosition,
               Size(chartSize, chartSize),
               segments,
-              totalSpent,
+              totalForChart,
               strokeWidth,
               gapDeg,
             );
-            if (index != null && index >= 0 && index < allCategories.length) {
-              final categoryKey = allCategories[index].key;
+            if (index != null && index >= 0 && index < entriesForChart.length) {
+              final categoryKey = entriesForChart[index].key;
               context.go('/bills', extra: categoryKey);
             }
           },
@@ -734,7 +768,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
               size: Size(chartSize, chartSize),
               painter: _RoundedDonutPainter(
                 segments: segments,
-                totalValue: totalSpent,
+                totalValue: totalForChart,
                 strokeWidth: strokeWidth,
                 gapDegrees: gapDeg,
                 hoveredSegmentIndex: _chartHoveredSegmentIndex,
@@ -745,9 +779,9 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
               final seg = segments[i];
               double startAngleDeg = -90;
               for (int j = 0; j < i; j++) {
-                startAngleDeg += 360 * (segments[j].value / totalSpent);
+                startAngleDeg += 360 * (segments[j].value / totalForChart);
               }
-              final sweepDeg = 360 * (seg.value / totalSpent);
+              final sweepDeg = 360 * (seg.value / totalForChart);
               final midAngle = startAngleDeg + sweepDeg / 2;
               final midRad = midAngle * math.pi / 180;
               final iconRadius = (chartSize - strokeWidth) / 2; // center of the ring
@@ -765,7 +799,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '\$${totalSpent.toStringAsFixed(2)}',
+                  '${CurrencyNotifier.symbolForCode(_displayCurrency)}${_totalSpent.toStringAsFixed(2)}',
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -792,17 +826,10 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   }
 
   Widget _buildCategoriesSection() {
-    // Group bills by category and sum totals
-    Map<String, double> categoryTotals = {};
-    for (var bill in _filteredBills) {
-      String category = bill.categoryId ?? 'Uncategorized';
-      categoryTotals[category] = (categoryTotals[category] ?? 0.0) + (bill.total ?? 0.0);
-    }
-    // Sort categories by total spent, take top 5
-    final sortedCategories = categoryTotals.entries.toList()
+    final sortedCategories = _categoryTotalsConverted.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final topCategories = sortedCategories.take(5).toList();
-    final totalSpent = _filteredBills.fold(0.0, (sum, bill) => sum + (bill.total ?? 0.0));
+    final totalSpent = _totalSpent;
     final themeColor = AppColors.bottomNavBackground;
     return Container(
       width: double.infinity,
@@ -930,7 +957,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            '\$${(category['amount'] as num?)?.toStringAsFixed(2) ?? '0.00'}',
+                            '${CurrencyNotifier.symbolForCode(_displayCurrency)}${(category['amount'] as num?)?.toStringAsFixed(2) ?? '0.00'}',
                             style: const TextStyle(
                               color: Colors.grey,
                               fontSize: 12,
@@ -966,16 +993,12 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     );
   }
 
-  /// Full category breakdown sheet when "View All" is tapped (Suggestion 5).
+  /// Full category breakdown sheet when "View All" is tapped (converted amounts).
   void _showAllCategoriesSheet() {
-    final Map<String, double> categoryTotals = {};
-    for (var bill in _filteredBills) {
-      final cat = bill.categoryId ?? 'Uncategorized';
-      categoryTotals[cat] = (categoryTotals[cat] ?? 0.0) + (bill.total ?? 0.0);
-    }
-    final sorted = categoryTotals.entries.toList()
+    final sorted = _categoryTotalsConverted.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final totalSpent = _filteredBills.fold<double>(0.0, (sum, b) => sum + (b.total ?? 0.0));
+    final totalSpent = _totalSpent;
+    final symbol = CurrencyNotifier.symbolForCode(_displayCurrency);
 
     showModalBottomSheet<void>(
       context: context,
@@ -1021,7 +1044,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '\$${totalSpent.toStringAsFixed(2)} total',
+                      '$symbol${totalSpent.toStringAsFixed(2)} total',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,

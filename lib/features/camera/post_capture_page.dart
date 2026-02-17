@@ -7,8 +7,10 @@ import '../../features/storage/bill/bill_provider.dart';
 import '../../features/storage/models/bill_model.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/currency_service.dart';
+import '../../core/services/budget_notification_service.dart';
 import '../../core/services/ocr/i_ocr_service.dart';
 import '../../core/theme/app_colors.dart';
+import '../../features/home/home_spending_providers.dart';
 
 class PostCapturePage extends ConsumerStatefulWidget {
   final String imagePath;
@@ -524,6 +526,19 @@ class _PostCapturePageState extends ConsumerState<PostCapturePage> {
 
         // Save the bill to database
         ref.read(billProvider.notifier).addBill(bill);
+
+        // Check budget alert (80% / 100%) and send notification if enabled
+        ref.invalidate(currentMonthSpendingProvider);
+        final spending = await ref.read(currentMonthSpendingProvider.future);
+        final budget = LocalStorageService.getDoubleSetting(LocalStorageService.kMonthlyBudget);
+        if (budget != null && budget > 0 && mounted) {
+          final symbol = ref.read(currencyProvider.notifier).symbolFor(ref.read(currencyProvider).currencyCode);
+          await BudgetNotificationService.checkAndSendThresholdAlerts(
+            currentSpending: spending,
+            budget: budget,
+            currencySymbol: symbol,
+          );
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

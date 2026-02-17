@@ -249,5 +249,53 @@ class BudgetNotificationService {
     await LocalStorageService.setBoolSetting('notif_threshold_enabled', threshold);
     await LocalStorageService.setBoolSetting('notif_daily_enabled', daily);
   }
+
+  // Keys: last month we sent 80% / 100% alert (value e.g. "2025-02")
+  static const String _kAlertSent80Month = 'budget_alert_sent_80_month';
+  static const String _kAlertSent100Month = 'budget_alert_sent_100_month';
+
+  /// Call after spending changes or on app load. Sends 80% / 100% alerts at most once per month when enabled.
+  static Future<void> checkAndSendThresholdAlerts({
+    required double currentSpending,
+    required double budget,
+    required String currencySymbol,
+  }) async {
+    if (budget <= 0) return;
+    final thresholdEnabled = LocalStorageService.getBoolSetting('notif_threshold_enabled', defaultValue: true);
+    if (!thresholdEnabled) return;
+
+    final now = DateTime.now();
+    final monthKey = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    final percentage = (currentSpending / budget) * 100;
+
+    // 100%: send if not already sent this month
+    if (percentage >= 100) {
+      final sent100 = LocalStorageService.getStringSetting(_kAlertSent100Month);
+      if (sent100 != monthKey) {
+        await sendThresholdAlert(
+          threshold: 100,
+          remaining: 0,
+          currencySymbol: currencySymbol,
+        );
+        await LocalStorageService.setStringSetting(_kAlertSent100Month, monthKey);
+        await LocalStorageService.setStringSetting(_kAlertSent80Month, monthKey);
+      }
+      return;
+    }
+
+    // 80%: send if not already sent this month
+    if (percentage >= 80) {
+      final sent80 = LocalStorageService.getStringSetting(_kAlertSent80Month);
+      if (sent80 != monthKey) {
+        final remaining = budget - currentSpending;
+        await sendThresholdAlert(
+          threshold: 80,
+          remaining: remaining,
+          currencySymbol: currencySymbol,
+        );
+        await LocalStorageService.setStringSetting(_kAlertSent80Month, monthKey);
+      }
+    }
+  }
 }
 

@@ -41,8 +41,14 @@ class CurrencyNotifier extends StateNotifier<CurrencyState> {
   }
 
   String symbolFor([String? code]) {
-    final c = (code ?? state.currencyCode).toUpperCase();
-    switch (c) {
+    return CurrencyNotifier.symbolForCode(code ?? state.currencyCode);
+  }
+
+  /// Static helper for getting currency symbol without ref (e.g. in Analysis page).
+  static String symbolForCode(String code) {
+    final c = (code.trim().toUpperCase());
+    final c2 = c.isEmpty ? 'USD' : c;
+    switch (c2) {
       case 'USD':
         return '\$';
       case 'EUR':
@@ -61,9 +67,9 @@ class CurrencyNotifier extends StateNotifier<CurrencyState> {
         return 'R\$';
       default:
         try {
-          return NumberFormat.simpleCurrency(name: c).currencySymbol;
+          return NumberFormat.simpleCurrency(name: c2).currencySymbol;
         } catch (_) {
-          return c;
+          return c2;
         }
     }
   }

@@ -132,7 +132,7 @@ class _TestEdgeDetectionState extends State<TestEdgeDetection> {
                             Container(
                               width: 30,
                               height: 30,
-                              decoration: BoxDecoration(
+                              decoration: const BoxDecoration(
                                 color: Colors.red,
                                 shape: BoxShape.circle,
                               ),

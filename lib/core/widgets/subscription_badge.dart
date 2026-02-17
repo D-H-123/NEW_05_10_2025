@@ -252,8 +252,8 @@ class SubscriptionIndicator extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xFF4facfe), // Use app primary color
+      decoration: const BoxDecoration(
+        color: Color(0xFF4facfe), // Use app primary color
         shape: BoxShape.circle,
       ),
       child: Center(

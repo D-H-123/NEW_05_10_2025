@@ -94,7 +94,7 @@ class _ProcessingSuccessFeedbackState extends State<ProcessingSuccessFeedback>
                       color: Colors.green.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.check_circle,
                       color: Colors.green,
                       size: 40,

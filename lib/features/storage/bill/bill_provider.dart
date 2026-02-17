@@ -12,17 +12,30 @@ class BillNotifier extends StateNotifier<List<Bill>> {
 
   void addBill(Bill bill) {
     box.put(bill.id, bill);
-    state = box.values.toList();
+    // ✅ Optimized: Immutable update instead of recreating entire list
+    state = [...state, bill];
   }
 
   void updateBill(Bill bill) {
     box.put(bill.id, bill);
-    state = box.values.toList();
+    // ✅ Optimized: Find and update only the changed item
+    final index = state.indexWhere((b) => b.id == bill.id);
+    if (index != -1) {
+      state = [
+        ...state.sublist(0, index),
+        bill,
+        ...state.sublist(index + 1),
+      ];
+    } else {
+      // Bill not found in state, add it
+      state = [...state, bill];
+    }
   }
 
   void deleteBill(String billId) {
     box.delete(billId);
-    state = box.values.toList();
+    // ✅ Optimized: Filter instead of recreating entire list
+    state = state.where((b) => b.id != billId).toList();
   }
 
   void updateBillSubscriptionFrequency(String billId, String newFrequency) {
@@ -50,7 +63,8 @@ class BillNotifier extends StateNotifier<List<Bill>> {
         updatedAt: DateTime.now(),
       );
       box.put(billId, updatedBill);
-      state = box.values.toList();
+      // ✅ Optimized: Use updateBill method for consistency
+      updateBill(updatedBill);
     }
   }
 }

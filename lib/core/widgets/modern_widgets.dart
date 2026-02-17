@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_colors.dart';
 import 'responsive_layout.dart';
 
 class GradientCard extends StatelessWidget {
@@ -451,23 +452,23 @@ class _ModernTextFieldState extends State<ModernTextField>
                     color: Theme.of(context).dividerColor,
                   ),
                 ),
-                focusedBorder: OutlineInputBorder(
+                focusedBorder: const OutlineInputBorder(
                   borderRadius: AppTheme.mediumBorderRadius,
-                  borderSide: const BorderSide(
+                  borderSide: BorderSide(
                     color: AppTheme.primaryGradientStart,
                     width: 2,
                   ),
                 ),
-                errorBorder: OutlineInputBorder(
+                errorBorder: const OutlineInputBorder(
                   borderRadius: AppTheme.mediumBorderRadius,
-                  borderSide: const BorderSide(
+                  borderSide: BorderSide(
                     color: AppTheme.errorColor,
                     width: 2,
                   ),
                 ),
-                focusedErrorBorder: OutlineInputBorder(
+                focusedErrorBorder: const OutlineInputBorder(
                   borderRadius: AppTheme.mediumBorderRadius,
-                  borderSide: const BorderSide(
+                  borderSide: BorderSide(
                     color: AppTheme.errorColor,
                     width: 2,
                   ),
@@ -572,17 +573,11 @@ class ModernBottomNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const selectedColor = AppColors.primaryDarkBlue;
     return Container(
       height: 80 + MediaQuery.of(context).padding.bottom,
-      decoration: BoxDecoration(
-        color: const Color(0xFF16213e),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        color: Colors.white,
       ),
       child: SafeArea(
         child: Row(
@@ -599,21 +594,14 @@ class ModernBottomNavigationBar extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      AnimatedContainer(
-                        duration: AppTheme.shortAnimation,
+                      Padding(
                         padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppTheme.primaryGradientStart.withOpacity(0.2)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
                         child: Icon(
                           item.icon,
                           color: isSelected
-                              ? AppTheme.primaryGradientStart
+                              ? selectedColor
                               : Colors.grey[600],
-                          size: 24,
+                          size: 26,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -621,7 +609,7 @@ class ModernBottomNavigationBar extends StatelessWidget {
                         duration: AppTheme.shortAnimation,
                         style: TextStyle(
                           color: isSelected
-                              ? AppTheme.primaryGradientStart
+                              ? selectedColor
                               : Colors.grey[600],
                           fontSize: 12,
                           fontWeight: isSelected

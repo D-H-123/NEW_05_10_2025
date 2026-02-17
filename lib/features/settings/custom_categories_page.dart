@@ -220,9 +220,9 @@ class _CustomCategoriesPageState extends State<CustomCategoriesPage> {
                   const SizedBox(height: 4),
                   Text(
                     'Keywords: ${category.keywords.take(3).join(", ")}${category.keywords.length > 3 ? "..." : ""}',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
-                      color: const Color(0xFF16213e),
+                      color: Color(0xFF16213e),
                       fontStyle: FontStyle.italic,
                     ),
                   ),

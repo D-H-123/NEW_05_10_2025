@@ -26,8 +26,9 @@ class LineHeuristics {
     // Strategy 1: Chain database lookup (fastest and most accurate)
     final chainVendor = ChainDatabase.detectVendor(processedLines);
     if (chainVendor != null) {
-      print('🔍 MAGIC VENDOR: Chain database detection found: "$chainVendor"');
-      return chainVendor;
+      final normalized = ChainDatabase.normalizeVendorName(chainVendor);
+      print('🔍 MAGIC VENDOR: Chain database detection found: "$chainVendor" -> normalized: "$normalized"');
+      return normalized;
     }
     
     // Strategy 2: Position-based detection (prioritizes top lines, larger text)
@@ -35,8 +36,9 @@ class LineHeuristics {
     final positionBasedVendor = _detectVendorByPosition(processedLines);
     if (positionBasedVendor != null) {
       final formattedVendor = _formatVendorName(positionBasedVendor, processedLines);
-      print('🔍 MAGIC VENDOR: Position-based detection found: "$positionBasedVendor" -> formatted: "$formattedVendor"');
-      return formattedVendor;
+      final normalized = ChainDatabase.normalizeVendorName(formattedVendor);
+      print('🔍 MAGIC VENDOR: Position-based detection found: "$positionBasedVendor" -> formatted: "$formattedVendor" -> normalized: "$normalized"');
+      return normalized;
     } else {
       print('🔍 MAGIC VENDOR: Position-based detection returned null');
     }
@@ -45,16 +47,18 @@ class LineHeuristics {
     final multiLineVendor = _detectVendorByMultiLine(processedLines);
     if (multiLineVendor != null) {
       final formattedVendor = _formatVendorName(multiLineVendor, processedLines);
-      print('🔍 MAGIC VENDOR: Multi-line detection found: "$multiLineVendor" -> formatted: "$formattedVendor"');
-      return formattedVendor;
+      final normalized = ChainDatabase.normalizeVendorName(formattedVendor);
+      print('🔍 MAGIC VENDOR: Multi-line detection found: "$multiLineVendor" -> formatted: "$formattedVendor" -> normalized: "$normalized"');
+      return normalized;
     }
     
     // Strategy 4: Traditional single-line detection
     final singleLineVendor = _detectVendorBySingleLine(processedLines);
     if (singleLineVendor != null) {
       final formattedVendor = _formatVendorName(singleLineVendor, processedLines);
-      print('🔍 MAGIC VENDOR: Single-line detection found: "$singleLineVendor" -> formatted: "$formattedVendor"');
-      return formattedVendor;
+      final normalized = ChainDatabase.normalizeVendorName(formattedVendor);
+      print('🔍 MAGIC VENDOR: Single-line detection found: "$singleLineVendor" -> formatted: "$formattedVendor" -> normalized: "$normalized"');
+      return normalized;
     }
     
     print('🔍 MAGIC VENDOR: No vendor detected with any method');

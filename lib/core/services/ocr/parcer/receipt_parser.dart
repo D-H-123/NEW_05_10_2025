@@ -4,6 +4,10 @@ import 'helpers/regex_util.dart';
 import 'helpers/line_heuristics.dart';
 import 'helpers/chain_database.dart';
 import '../../category_service.dart';
+import '../ocr_logger.dart';
+
+// Redirect legacy print calls to structured logger
+void print(Object? object) => OcrLogger.debug(object?.toString() ?? '');
 
 class ParsedReceipt {
   final String? vendor;
@@ -13,6 +17,7 @@ class ParsedReceipt {
   final String? category;
   final List<Map<String, dynamic>> lineItems;
   final Map<String, double> totals;
+  final List<AmountCandidate> totalCandidates;
 
   ParsedReceipt({
     this.vendor,
@@ -22,6 +27,7 @@ class ParsedReceipt {
     this.category,
     this.lineItems = const [],
     this.totals = const {},
+    this.totalCandidates = const [],
   });
 }
 
@@ -85,8 +91,9 @@ class ReceiptParser {
 
     // Vendor detection: top N lines heuristics (ignore phone/address)
     print('🔍 MAGIC PARSER: Starting vendor detection...');
-    final vendor = _heuristics.detectMerchant(lines);
-    print('🔍 MAGIC PARSER: Detected vendor: "$vendor"');
+    final vendorResult = _heuristics.detectMerchantWithConfidence(lines);
+    final vendor = vendorResult?.name;
+    print('🔍 MAGIC PARSER: Detected vendor: "$vendor" (confidence: ${vendorResult?.confidence})');
 
     // Date detection
     print('🔍 MAGIC PARSER: Starting date detection...');
@@ -109,13 +116,14 @@ class ReceiptParser {
       total = totalResult?.amount;
       print('🔍 MAGIC PARSER: findTotalByKeywords() completed successfully');
     } catch (e, stackTrace) {
-      print('🔍 ERROR: Exception in findTotalByKeywords(): $e');
-      print('🔍 ERROR: Stack trace: $stackTrace');
+      OcrLogger.error('Exception in findTotalByKeywords(): $e');
+      OcrLogger.error('Stack trace: $stackTrace');
       total = null;
     }
     final currencyFromTotal = totalResult?.currency ?? currency;
     print('🔍 MAGIC PARSER: Detected total: $total');
     print('🔍 MAGIC PARSER: Currency from total: "$currencyFromTotal"');
+    final totalCandidates = _rx.findTotalCandidates(lines);
 
     // Subtotal / tax
     final totalsMap = <String, double>{};
@@ -128,6 +136,25 @@ class ReceiptParser {
     print('🔍 MAGIC PARSER: Starting line items extraction...');
     final items = _heuristics.extractLineItems(lines, linesPositional);
     print('🔍 MAGIC PARSER: Extracted ${items.length} line items');
+
+    // Validate total against sum of line items when possible
+    if (total != null && items.isNotEmpty) {
+      final itemsSum = items
+          .map((item) => item['total'] as double? ?? item['price'] as double? ?? 0.0)
+          .fold(0.0, (a, b) => a + b);
+      final tolerance = (itemsSum * 0.02).clamp(0.05, 1.0);
+      final diff = (itemsSum - total).abs();
+      if (itemsSum > 0 && diff > tolerance) {
+        print('🔍 MAGIC PARSER: Total mismatch vs items sum. total=$total, itemsSum=$itemsSum, diff=$diff, tolerance=$tolerance');
+        final fallbackTotal = _rx.findTotalNearAmount(lines, itemsSum, tolerance);
+        if (fallbackTotal != null) {
+          print('🔍 MAGIC PARSER: Using total aligned with item sum: ${fallbackTotal.amount}');
+          total = fallbackTotal.amount;
+        } else {
+          print('🔍 MAGIC PARSER: No better total found near items sum');
+        }
+      }
+    }
 
     // Category inference: by chain database first, then fallback by keywords in text
     String? category;
@@ -169,6 +196,7 @@ class ReceiptParser {
       category: category,
       lineItems: items,
       totals: totalsMap,
+      totalCandidates: totalCandidates,
     );
     
     print('🔍 MAGIC PARSER: Final parsing result:');

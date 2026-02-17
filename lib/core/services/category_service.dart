@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
-import 'package:smart_receipt/core/models/custom_category.dart';
 
 class CategoryService {
   static const Map<String, CategoryInfo> _categories = {

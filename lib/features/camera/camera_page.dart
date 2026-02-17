@@ -8,16 +8,16 @@ import 'package:image/image.dart' as img;
 import '../../core/services/image_preprocessing_service.dart';
 import '../../core/services/document_scanner_service.dart';
 import '../../core/services/ocr/mlkit_ocr_service.dart';
+import '../../core/services/ocr/i_ocr_service.dart';
 import '../../core/widgets/modern_widgets.dart';
 import '../../core/widgets/user_friendly_loading.dart';
 import '../../core/widgets/camera_guidance.dart';
-import '../../core/widgets/simple_edge_detection.dart';
 import '../../core/widgets/processing_success.dart';
-import '../../core/services/optimized_edge_detection_service.dart';
 import '../../core/widgets/simple_crop_dialog.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/widgets/subscription_paywall.dart';
 import '../../core/widgets/usage_tracker.dart';
+import '../../core/theme/app_colors.dart';
 import 'pre_scan_instruction_modal.dart';
 
 class CameraPage extends StatefulWidget {
@@ -37,6 +37,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   String? _detectedCurrency;
   DateTime? _detectedDate;
   String? _detectedCategory;
+  List<AmountCandidate> _totalCandidates = [];
   
   // New state variables for edge detection and cropping
   bool _isProcessingImage = false;
@@ -47,7 +48,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   // Edge detection state
   List<Offset>? _detectedCorners;
-  bool _isDetectingEdges = false;
+  final bool _isDetectingEdges = false;
   
   // Document scanner state
   String? _scanMode; // 'scan_document' or 'import_gallery'
@@ -63,7 +64,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // ML Kit Document Scanner
   final MLKitDocumentService _mlKitService = MLKitDocumentService();
   
-  // OCR Service for text extraction (using legacy system)
+  // OCR Service (local ML Kit only)
   final MlKitOcrService _ocrService = MlKitOcrService();
   
   // OCR completion tracking
@@ -81,9 +82,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     _initializeAnimations();
     _initializeMLKit();
     _initializePremiumService();
+    // ML Kit OCR service is ready to use.
     _showPreScanInstructions();
   }
-
+  
   void _initializeAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1000),
@@ -362,7 +364,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _processCapturedImage(File(_scannedImagePath ?? ''));
+              // Step 5: Use same pipeline as main flow (crop → preprocess → OCR → post-capture)
+              _showCapturedImageWithCrop(File(_scannedImagePath ?? ''));
             },
             child: const Text('Attempt Single Capture'),
           ),
@@ -508,8 +511,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _isPreprocessing = true;
       _scannedImagePath = croppedFile.path;
     });
+    _updateProcessingState(0, 'Scanning your receipt...', 0.0);
     
     try {
+      _updateProcessingState(1, 'Getting ready to read...', 0.2);
       // Apply OCR preprocessing to cropped image
       final processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(croppedFile);
       
@@ -519,35 +524,11 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _isPreprocessing = false;
         _isOcrCompleted = false;
       });
-      
+      _updateProcessingState(1, 'Getting ready to read...', 0.4);
       print('✅ PROCESSING: Image processing complete');
       
-      // Automatically trigger OCR
+      // OCR runs and navigates to post-capture when done (fixes stuck issue)
       await _performAutomaticOCR();
-      
-      // Wait a moment for OCR to complete and then navigate
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // After OCR completion, show post-capture page
-      if (_isOcrCompleted && mounted) {
-        print('🚀 POST-CAPTURE: Navigating to post-capture page...');
-        print('🚀 POST-CAPTURE: Data being passed:');
-        print('  Image path: $_scannedImagePath');
-        print('  Detected title: "$_detectedTitle"');
-        print('  Detected total: $_detectedTotal');
-        print('  Detected currency: "$_detectedCurrency"');
-        print('  Detected date: $_detectedDate');
-        print('  Detected category: "$_detectedCategory"');
-        
-        context.go('/post-capture', extra: {
-          'imagePath': _scannedImagePath,
-          'detectedTitle': _detectedTitle,      // ✅ Fixed key
-          'detectedTotal': _detectedTotal,      // ✅ Fixed key
-          'detectedCurrency': _detectedCurrency, // ✅ Fixed key
-          'detectedDate': _detectedDate,        // ✅ Fixed key
-          'detectedCategory': _detectedCategory, // ✅ Fixed key
-        });
-      }
       
     } catch (e) {
       print('❌ PROCESSING: Failed to process cropped image: $e');
@@ -636,260 +617,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     }
   }
 
-  /// Process captured/imported image with automatic edge detection
-  Future<void> _processCapturedImage(File imageFile) async {
-    // Stop document detection immediately when processing starts
-    _stopDocumentDetection();
-    
-    setState(() {
-      _isProcessingImage = true;
-      _isPreprocessing = true;
-      _detectedCorners = null; // Reset detected corners
-    });
-    
-    // Update with user-friendly message
-    _updateProcessingState(0, 'Scanning your receipt...', 0.1);
-    
-    print('🛑 PROCESSING: Stopped document detection, starting image processing...');
-    
-    try {
-      print('🔍 STEP 1: Starting edge detection...');
-      print('🔍 DEBUG: Image file path: ${imageFile.path}');
-      print('🔍 DEBUG: Image file exists: ${await imageFile.exists()}');
-      
-      // Use optimized edge detection with caching and smart algorithms
-      print('🔍 DEBUG: Using optimized edge detection with smart algorithms...');
-      final corners = await OptimizedEdgeDetectionService.detectDocumentEdges(imageFile);
-      print('🔍 DEBUG: Simple edge detection result: $corners');
-      print('🔍 DEBUG: Corner count: ${corners.length}');
-      
-      // Validate corners
-      if (corners.length != 4) {
-        print('❌ DEBUG: Invalid corner count: ${corners.length}');
-        // Force 4 corners
-        final width = 400.0; // Default width
-        final height = 600.0; // Default height
-        final fallbackCorners = [
-          Offset(width * 0.1, height * 0.1),      // Top-left
-          Offset(width * 0.9, height * 0.1),      // Top-right
-          Offset(width * 0.9, height * 0.9),      // Bottom-right
-          Offset(width * 0.1, height * 0.9),      // Bottom-left
-        ];
-        print('🔍 DEBUG: Using fallback corners: $fallbackCorners');
-        // Update the corners variable
-        corners.clear();
-        corners.addAll(fallbackCorners);
-      }
-      
-      File processedImage;
-      String processingMessage = '';
-
-      if (corners.length == 4) {
-        print('✅ STEP 1 COMPLETE: Found ${corners.length} corners');
-        print('🔍 DEBUG: Corners found: $corners');
-        
-        // Update preprocessing state to show edge detection is complete
-        setState(() {
-          _isPreprocessing = false;
-        });
-        
-        // Update with user-friendly message
-        _updateProcessingState(1, 'Getting ready to read...', 0.3);
-        
-        // Show user control for edge detection
-        print('🔍 STEP 1.5: Showing user control for edge detection...');
-        print('🔍 DEBUG: About to show edge detection dialog...');
-        
-        // Ensure we have a valid context before showing dialog
-        if (!mounted) {
-          print('❌ ERROR: Widget not mounted, cannot show dialog');
-          return;
-        }
-        
-        // Add a small delay to ensure UI is ready
-        await Future.delayed(const Duration(milliseconds: 200));
-        
-        print('🔍 DEBUG: Context is valid, showing simple edge detection dialog...');
-        final userAdjustedCorners = await showDialog<List<Offset>>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => SimpleEdgeDetectionDialog(
-            imageFile: imageFile,
-            detectedCorners: corners,
-          ),
-        );
-        print('🔍 DEBUG: Simple edge detection dialog returned: $userAdjustedCorners');
-        
-        if (userAdjustedCorners != null && userAdjustedCorners.length == 4) {
-          print('✅ STEP 1.5 COMPLETE: User adjusted corners - USING ADJUSTED CORNERS');
-          print('🔍 DEBUG: Adjusted corners: $userAdjustedCorners');
-          
-          // Store corners for visual feedback
-          setState(() {
-            _detectedCorners = userAdjustedCorners;
-            _isPreprocessing = true; // Show processing again
-          });
-          
-          print('🔍 STEP 2: Applying perspective correction with ADJUSTED corners...');
-          final correctedImage = await Future.any([
-            _preprocessor.applyPerspectiveCorrection(imageFile, userAdjustedCorners),
-            Future.delayed(const Duration(seconds: 15), () {
-              throw TimeoutException('Perspective correction timed out after 15 seconds', const Duration(seconds: 15));
-            }),
-          ]);
-          print('✅ STEP 2 COMPLETE: Perspective correction completed with adjusted corners');
-          
-          print('🔍 STEP 3: Starting OPTIMIZED OCR preprocessing for adjusted corner document...');
-          processedImage = await Future.any([
-            _preprocessor.preprocessForMaximumOCRAccuracySmart(correctedImage),
-            Future.delayed(const Duration(seconds: 15), () {
-              throw TimeoutException('OCR preprocessing timed out after 15 seconds', const Duration(seconds: 15));
-            }),
-          ]);
-          print('✅ STEP 3 COMPLETE: OPTIMIZED OCR preprocessing completed for adjusted corners');
-          
-          processingMessage = '✅ ADJUSTED CORNERS USED: Edge Detection → User Adjustment → Perspective Correction → OCR Preprocessing';
-          
-        } else {
-          print('⚠️ STEP 1.5: User skipped edge detection, using basic preprocessing...');
-          // User chose to skip edge detection
-          setState(() {
-            _isPreprocessing = true; // Show processing again
-          });
-          processedImage = await Future.any([
-            _preprocessor.preprocessForMaximumOCRAccuracySmart(imageFile),
-            Future.delayed(const Duration(seconds: 15), () {
-              throw TimeoutException('Basic preprocessing timed out after 15 seconds', const Duration(seconds: 15));
-            }),
-          ]);
-          processingMessage = '⚠️ Basic preprocessing completed (edge detection skipped)';
-        }
-        
-      } else {
-        print('⚠️ STEP 1 FAILED: No corners found, offering manual edge detection...');
-        
-        // Even if automatic edge detection fails, offer manual edge detection
-        if (mounted) {
-          setState(() {
-            _isPreprocessing = false;
-          });
-          
-          // Show a dialog asking if user wants to try manual edge detection
-          final shouldTryManual = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Edge Detection'),
-              content: const Text(
-                'Automatic edge detection could not find document edges.\n\n'
-                'Would you like to manually adjust the corners or proceed with basic processing?'
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Skip Edge Detection'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Manual Adjustment'),
-                ),
-              ],
-            ),
-          );
-          
-          if (shouldTryManual == true) {
-            // Create default corners for manual adjustment based on image size
-            final bytes = await imageFile.readAsBytes();
-            final image = img.decodeImage(bytes);
-            if (image != null) {
-              final imageWidth = image.width.toDouble();
-              final imageHeight = image.height.toDouble();
-              
-              final defaultCorners = [
-                Offset(imageWidth * 0.1, imageHeight * 0.1),   // Top-left
-                Offset(imageWidth * 0.9, imageHeight * 0.1),  // Top-right
-                Offset(imageWidth * 0.9, imageHeight * 0.9), // Bottom-right
-                Offset(imageWidth * 0.1, imageHeight * 0.9),  // Bottom-left
-              ];
-              
-              final userAdjustedCorners = await showDialog<List<Offset>>(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) => SimpleEdgeDetectionDialog(
-                  imageFile: imageFile,
-                  detectedCorners: defaultCorners,
-                ),
-              );
-              
-              if (userAdjustedCorners != null && userAdjustedCorners.length == 4) {
-                setState(() {
-                  _detectedCorners = userAdjustedCorners;
-                  _isPreprocessing = true;
-                });
-                
-                final correctedImage = await _preprocessor.applyPerspectiveCorrection(imageFile, userAdjustedCorners);
-                processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(correctedImage);
-                processingMessage = '✅ Manual Edge Detection → Perspective Correction → OCR Preprocessing';
-              } else {
-                processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(imageFile);
-                processingMessage = '⚠️ Basic preprocessing completed (manual edge detection skipped)';
-              }
-            } else {
-              processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(imageFile);
-              processingMessage = '⚠️ Basic preprocessing completed (image decode failed)';
-            }
-          } else {
-            processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(imageFile);
-            processingMessage = '⚠️ Basic preprocessing completed (edge detection skipped)';
-          }
-        } else {
-          processedImage = await _preprocessor.preprocessForMaximumOCRAccuracySmart(imageFile);
-          processingMessage = '⚠️ Basic preprocessing completed (edge detection failed)';
-        }
-      }
-      
-      setState(() {
-        _processedImage = processedImage;
-        _scannedImagePath = processedImage.path;
-        _isPreprocessing = false;
-        _isOcrCompleted = false; // Reset OCR completion flag for new image
-      });
-      
-      print('✅ PROCESSING: $processingMessage');
-      
-      // Automatically trigger OCR after preprocessing completes
-      print('🔍 PROCESSING: Auto-triggering OCR after preprocessing...');
-      await _performAutomaticOCR();
-      
-      // OCR will only run after corner adjustment is applied
-      // No automatic OCR here - user must apply corner adjustments first
-      
-    } catch (e) {
-      print('❌ PROCESSING: Failed: $e');
-      setState(() {
-        _isProcessingImage = false;
-        _isPreprocessing = false;
-      });
-      
-      // Show error dialog
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Processing Failed'),
-            content: Text('Error: $e'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    }
-  }
-
-
   /// Automatically perform OCR after preprocessing completes
   Future<void> _performAutomaticOCR() async {
     if (_processedImage == null) {
@@ -912,9 +639,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     });
     
     try {
+      // Use local ML Kit OCR service
       final ocrResult = await _ocrService.processImage(_processedImage!);
       
-      print('🔍 AUTO OCR: Automatic OCR completed successfully');
+      print('🔍 AUTO OCR: OCR completed successfully');
       print('  Vendor: "${ocrResult.vendor}"');
       print('  Amount: ${ocrResult.total}');
       print('  Currency: "${ocrResult.currency}"');
@@ -924,34 +652,37 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       // Update with completion message
       _updateProcessingState(3, 'Almost done!', 0.9);
       
+      // Update state but keep _isProcessingImage true so overlay stays (no camera flash)
       setState(() {
         _detectedTitle = ocrResult.vendor;
         _detectedTotal = ocrResult.total;
         _detectedCurrency = ocrResult.currency;
         _detectedDate = ocrResult.date;
         _detectedCategory = ocrResult.category;
+        _totalCandidates = ocrResult.totalCandidates;
         _isRunningOCR = false;
-        _isProcessingImage = false; // Stop processing when OCR completes
-        _isOcrCompleted = true; // Enable Done button
+        _isOcrCompleted = true;
+        // Keep _isProcessingImage = true until we navigate so user never sees camera
       });
       
-      print('🔍 AUTO OCR: State updated with OCR results:');
-      print('  _detectedTitle: "$_detectedTitle"');
-      print('  _detectedTotal: $_detectedTotal');
-      print('  _detectedCurrency: "$_detectedCurrency"');
-      print('  _detectedDate: $_detectedDate');
-      print('  _detectedCategory: "$_detectedCategory"');
-      print('  _isOcrCompleted: $_isOcrCompleted');
+      _updateProcessingState(3, 'Almost done!', 1.0);
       
-      // Final completion message
-      _updateProcessingState(4, 'Perfect! Found your receipt', 1.0);
-      
+      // Navigate to post-capture while overlay is still visible (no camera flash)
       if (mounted) {
+        context.go('/post-capture', extra: {
+          'imagePath': _scannedImagePath,
+          'detectedTitle': _detectedTitle,
+          'detectedTotal': _detectedTotal,
+          'detectedCurrency': _detectedCurrency,
+          'detectedDate': _detectedDate,
+          'detectedCategory': _detectedCategory,
+          'totalCandidates': _totalCandidates,
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('OCR completed automatically! Found: ${ocrResult.vendor ?? "Unknown vendor"}, ${ocrResult.total != null ? "\$${ocrResult.total!.toStringAsFixed(2)}" : "No amount"}'),
+            content: Text('OCR completed! Found: ${ocrResult.vendor ?? "Unknown vendor"}, ${ocrResult.total != null ? "\$${ocrResult.total!.toStringAsFixed(2)}" : "No amount"}'),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -986,6 +717,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _detectedTotal = null;
       _detectedCurrency = null;
       _detectedDate = null;
+        _totalCandidates = [];
       _isProcessingImage = false;
       _isOcrCompleted = false;
       _isPreprocessing = false;
@@ -1161,7 +893,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
     
     final imageWidth = image.width.toDouble();
     final imageHeight = image.height.toDouble();
-    print('🔍 EDGE CONTROL: Image dimensions: ${imageWidth}x${imageHeight}');
+    print('🔍 EDGE CONTROL: Image dimensions: ${imageWidth}x$imageHeight');
     
     return await showDialog<List<Offset>>(
       context: context,
@@ -1202,8 +934,8 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
         // Store original corners for reset functionality
         final List<Offset> originalDisplayCorners = List.from(displayCorners);
         
-        print('🔍 EDGE CONTROL: Display size: ${displayWidth}x${displayHeight}');
-        print('🔍 EDGE CONTROL: Offset: ${offsetX}, ${offsetY}');
+        print('🔍 EDGE CONTROL: Display size: ${displayWidth}x$displayHeight');
+        print('🔍 EDGE CONTROL: Offset: $offsetX, $offsetY');
         print('🔍 EDGE CONTROL: Initial display corners: $displayCorners');
         
         return StatefulBuilder(
@@ -1232,13 +964,13 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.blue.shade200),
                       ),
-                      child: Column(
+                      child: const Column(
                         children: [
                           Row(
                             children: [
                               Icon(Icons.touch_app, color: Colors.blue, size: 20),
-                              const SizedBox(width: 8),
-                              const Expanded(
+                              SizedBox(width: 8),
+                              Expanded(
                                 child: Text(
                                   'Drag Corner Points',
                                   style: TextStyle(
@@ -1250,8 +982,8 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          const Text(
+                          SizedBox(height: 8),
+                          Text(
                             'Drag the numbered red circles to adjust document corners.\n'
                             'Blue lines show the detected document boundary.',
                             style: TextStyle(fontSize: 13, color: Colors.blue),
@@ -1381,7 +1113,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                                   ),
                                 ),
                               );
-                            }).toList(),
+                            }),
                           ],
                         ),
                       ),
@@ -1618,6 +1350,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
         'detectedCurrency': _detectedCurrency,
         'detectedDate': _detectedDate,
         'detectedCategory': _detectedCategory,
+        'totalCandidates': _totalCandidates,
       });
     }
   }
@@ -1630,7 +1363,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
     _autoDetectionTimeout?.cancel(); // Clean up auto-detection timeout timer
     _pulseController?.dispose();
     _mlKitService.dispose();
-    _ocrService.dispose();
+    _ocrService.dispose(); // Clean up OCR service
     super.dispose();
   }
 
@@ -1686,11 +1419,11 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
           
           // Usage Tracker for free users
           if (!PremiumService.isPremium)
-            Positioned(
+            const Positioned(
               top: 50,
               left: 16,
               right: 16,
-              child: const ScanLimitBanner(),
+              child: ScanLimitBanner(),
             ),
 
           // Overlay UI
@@ -2036,25 +1769,27 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
             ),
           ),
           
-          // User-friendly processing overlay
+          // User-friendly processing overlay (primary color background instead of camera)
           if (_isProcessingImage)
             UserFriendlyLoadingOverlay(
               isLoading: true,
               message: _currentProcessingMessage,
               progress: _processingProgress,
-              child: Container(),
+              child: SizedBox.expand(
+                child: Container(color: AppColors.bottomNavBackground),
+              ),
             ),
           
-          // Processing pipeline (alternative view) - only show when processing and NOT completed
-          if (_isProcessingImage && _currentProcessingStep > 0 && !_isOcrCompleted)
+          // Visible progress steps - show when processing and not yet completed
+          if (_isProcessingImage && !_isOcrCompleted)
             Positioned(
               top: 100,
               left: 20,
               right: 20,
               child: ProcessingPipeline(
                 steps: ReceiptProcessingSteps.steps,
-                currentStep: _currentProcessingStep,
-                isCompleted: false, // Never show as completed here
+                currentStep: _currentProcessingStep.clamp(0, ReceiptProcessingSteps.steps.length - 1),
+                isCompleted: false,
               ),
             ),
           
@@ -2154,7 +1889,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.check_circle, color: Colors.green, size: 20),
+                            const Icon(Icons.check_circle, color: Colors.green, size: 20),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -2182,7 +1917,7 @@ Future<List<Offset>?> _showEdgeDetectionControl(File imageFile, List<Offset> det
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                            const Icon(Icons.info_outline, color: Colors.orange, size: 20),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -2327,8 +2062,8 @@ class AdjustableCornerPainter extends CustomPainter {
       
       // Draw dashed line
       final distance = (end - start).distance;
-      final dashLength = 8.0;
-      final dashSpace = 4.0;
+      const dashLength = 8.0;
+      const dashSpace = 4.0;
       final dashCount = (distance / (dashLength + dashSpace)).floor();
       
       for (int j = 0; j < dashCount; j++) {

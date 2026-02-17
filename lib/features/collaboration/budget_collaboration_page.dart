@@ -7,6 +7,7 @@ import '../../core/services/budget_collaboration_service.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/services/category_service.dart';
 import '../../core/widgets/subscription_paywall.dart';
+import '../../core/widgets/skeleton_loader.dart';
 import 'settlement_tracker_page.dart' show SettlementTrackerSheet;
 
 class BudgetCollaborationPage extends StatefulWidget {
@@ -90,20 +91,18 @@ class _BudgetCollaborationPageState extends State<BudgetCollaborationPage> {
             print('📦 Data length: ${snapshot.data?.length}');
           }
 
-          // Show loading spinner while waiting
+          // ✅ UI/UX Improvement: Show skeleton loader while waiting
           if (snapshot.connectionState == ConnectionState.waiting) {
             print('⏳ Showing loading...');
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF16213e)),
-                  ),
-                  SizedBox(height: 16),
-                  Text('Loading budgets...'),
-                ],
-              ),
+            return ListView(
+              padding: const EdgeInsets.all(20),
+              children: const [
+                BudgetCardSkeletonLoader(),
+                SizedBox(height: 16),
+                BudgetCardSkeletonLoader(),
+                SizedBox(height: 16),
+                BudgetCardSkeletonLoader(),
+              ],
             );
           }
 
@@ -576,7 +575,7 @@ class _BudgetCollaborationPageState extends State<BudgetCollaborationPage> {
 
               Navigator.pop(context);
 
-              print('🚀 Creating budget: "$name" with amount: \$${amount}');
+              print('🚀 Creating budget: "$name" with amount: \$$amount');
               
               final budget = await BudgetCollaborationService.createSharedBudget(
                 name: name,
@@ -1160,7 +1159,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -1272,7 +1271,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                                   Container(
                                                     width: 8,
                                                     height: 8,
-                                                    decoration: BoxDecoration(
+                                                    decoration: const BoxDecoration(
                                                       color: Colors.orange,
                                                       shape: BoxShape.circle,
                                                     ),
@@ -1359,7 +1358,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                               ),
                             ),
                           );
-                        }).toList(),
+                        }),
                     ],
                   ),
                 ),
@@ -1965,7 +1964,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                         ),
                         Switch(
                           value: isSplitEnabled,
-                          activeColor: const Color(0xFF4facfe),
+                          activeThumbColor: const Color(0xFF4facfe),
                           onChanged: (value) async {
                             if (value) {
                               final isModifyingSplit = isEditing && !originalIsSplit;
@@ -2595,7 +2594,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                                       ],
                                     ),
                                   );
-                                }).toList(),
+                                }),
                                 
                                 // Balance indicator
                                 const SizedBox(height: 8),
@@ -2902,7 +2901,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                 children: [
                   Text(
                     isExpenseOwner
-                        ? 'Record payment from ${memberName}:'
+                        ? 'Record payment from $memberName:'
                         : 'Record your payment to ${expense.userName}:',
                     style: const TextStyle(
                       fontSize: 14,
@@ -3467,7 +3466,7 @@ class SharedBudgetDetailsPage extends StatelessWidget {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),

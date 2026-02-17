@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import '../theme/app_colors.dart';
 import 'smart_crop_widget.dart';
 
 /// High-performance crop dialog with maximum efficiency and accuracy
@@ -212,7 +213,7 @@ class _SmartCropDialogState extends State<SmartCropDialog> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: const BoxDecoration(
-                color: Color(0xFF2E7D32),
+                color: AppColors.bottomNavBackground,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(12),
                   topRight: Radius.circular(12),
@@ -336,7 +337,7 @@ class _SmartCropDialogState extends State<SmartCropDialog> {
                     child: ElevatedButton(
                       onPressed: _isProcessing ? null : _applyCrop,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D32),
+                        backgroundColor: AppColors.bottomNavBackground,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),

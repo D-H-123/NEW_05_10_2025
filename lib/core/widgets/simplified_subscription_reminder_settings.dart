@@ -173,7 +173,7 @@ class _SimplifiedSubscriptionReminderSettingsState extends ConsumerState<Simplif
               Container(
                 width: 48,
                 height: 48,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   gradient: AppTheme.primaryGradient,
                   borderRadius: AppTheme.smallBorderRadius,
                 ),
@@ -216,7 +216,7 @@ class _SimplifiedSubscriptionReminderSettingsState extends ConsumerState<Simplif
             ),
             child: Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.info_outline,
                   color: AppTheme.primaryGradientStart,
                   size: 20,
@@ -284,7 +284,7 @@ class _SimplifiedSubscriptionReminderSettingsState extends ConsumerState<Simplif
               Switch(
                 value: _preferences.renewalEnabled,
                 onChanged: (enabled) => _updatePreference(renewalEnabled: enabled),
-                activeColor: Colors.blue,
+                activeThumbColor: Colors.blue,
               ),
             ],
           ),

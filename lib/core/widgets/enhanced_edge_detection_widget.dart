@@ -178,9 +178,9 @@ class _EnhancedEdgeDetectionWidgetState extends State<EnhancedEdgeDetectionWidge
                               size: 48,
                             ),
                             const SizedBox(height: 16),
-                            Text(
+                            const Text(
                               'Detection Failed',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,

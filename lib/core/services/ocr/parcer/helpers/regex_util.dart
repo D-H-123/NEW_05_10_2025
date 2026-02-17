@@ -1,6 +1,11 @@
 // lib/services/ocr/parser/helpers/optimized_regex_util.dart
 import 'package:intl/intl.dart';
+import '../../i_ocr_service.dart';
+import '../../ocr_logger.dart';
 import '../../../category_service.dart';
+
+// Redirect legacy print calls to structured logger
+void print(Object? object) => OcrLogger.debug(object?.toString() ?? '');
 
 class AmountMatch {
   final double amount;
@@ -24,6 +29,10 @@ class AmountMatch {
 }
 
 class RegexUtil{
+  // Normalize confidence scores to 0-1
+  static const double _confidenceScale = 80.0;
+  double _normalizeConfidence(double raw) => (raw / _confidenceScale).clamp(0.0, 1.0);
+  double _conf(double raw) => _normalizeConfidence(raw);
   // Enhanced date patterns with comprehensive real-world support
   final List<RegExp> _dateRegexes = [
     // HIGH PRIORITY: Date with time formats (most common in receipts)
@@ -335,7 +344,7 @@ class RegexUtil{
   //   return _selectBestCandidate(allCandidates, lines);
   // }
   // In optimized_regex_util.dart - Replace findTotalByKeywords method
-AmountMatch? findTotalByKeywords(List<String> lines) {
+List<AmountMatch> _collectTotalCandidates(List<String> lines) {
   print('🔍 ENHANCED: Starting robust total detection with ${lines.length} lines');
   print('🔍 DEBUG: findTotalByKeywords() CALLED - THIS SHOULD APPEAR IN OUTPUT');
   
@@ -421,9 +430,10 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
             print('🔍 DEBUG: Applied decimal bonus for complete amount: ${candidate.amount}');
           }
           // Very high confidence for explicit totals
-          final totalConfidence = keywordScore + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore + 5.0 + decimalBonus; // Extra boost
+          final rawTotalConfidence = keywordScore + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore + 5.0 + decimalBonus; // Extra boost
+          final totalConfidence = _normalizeConfidence(rawTotalConfidence);
           
-          print('🔍 DEBUG: Created candidate: amount=${candidate.amount}, confidence=$totalConfidence (base=$keywordScore, position=$positionScore, format=$formatScore, size=$amountSizeScore, visual=$visualFormatScore, context=$contextScore, boost=5.0), method=explicit_total_$keyword');
+          print('🔍 DEBUG: Created candidate: amount=${candidate.amount}, confidence=$totalConfidence (raw=$rawTotalConfidence), method=explicit_total_$keyword');
           
           allCandidates.add(AmountMatch(
             candidate.amount,
@@ -472,9 +482,8 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
     }
     
     final bestExplicit = allCandidates.first; // Use first candidate after enhanced sorting
-    if (bestExplicit.confidence > 15.0) {
+    if (bestExplicit.confidence > _conf(15.0)) {
       print('🔍 ENHANCED: Found explicit total with high confidence: $bestExplicit');
-      return bestExplicit;
     } else {
       print('🔍 DEBUG: Best explicit candidate confidence too low: ${bestExplicit.confidence}');
     }
@@ -502,11 +511,12 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
         final visualFormatScore = _calculateVisualFormatScore(line, candidate.amount);
         final contextScore = _calculateContextScore(line, globalIndex, lines.length, candidate.amount);
         
+        final rawConfidence = 12.0 + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore;
         allCandidates.add(AmountMatch(
           candidate.amount,
           currency: candidate.currency,
           lineIndex: globalIndex,
-          confidence: 12.0 + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore,
+          confidence: _normalizeConfidence(rawConfidence),
           detectionMethod: 'total_pattern',
           originalText: line,
         ));
@@ -534,7 +544,8 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
           final visualFormatScore = _calculateVisualFormatScore(line, candidate.amount);
           final contextScore = _calculateContextScore(line, i, lines.length, candidate.amount);
           
-          final totalConfidence = keywordScore + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore;
+          final rawTotalConfidence = keywordScore + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore;
+          final totalConfidence = _normalizeConfidence(rawTotalConfidence);
           
           allCandidates.add(AmountMatch(
             candidate.amount,
@@ -566,7 +577,8 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
         final contextScore = _calculateContextScore(line, i, lines.length, candidate.amount);
         
         // Give TOTAL keyword a good confidence score
-        final totalConfidence = 12.0 + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore;
+        final rawTotalConfidence = 12.0 + positionScore + formatScore + amountSizeScore + visualFormatScore + contextScore;
+        final totalConfidence = _normalizeConfidence(rawTotalConfidence);
         
         allCandidates.add(AmountMatch(
           candidate.amount,
@@ -587,7 +599,7 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
   }
   
   // PRIORITY 5: Last resort - but be much more selective
-  if (allCandidates.isEmpty || allCandidates.every((c) => c.confidence < 8.0)) {
+  if (allCandidates.isEmpty || allCandidates.every((c) => c.confidence < _conf(8.0))) {
     print('🔍 ENHANCED: Using selective fallback detection');
     final fallback = _findSelectiveFallback(lines);
     if (fallback != null) {
@@ -617,7 +629,7 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
               candidate.amount,
               currency: candidate.currency,
               lineIndex: i,
-              confidence: 6.0 + amountSizeScore + visualFormatScore + contextScore,
+            confidence: _normalizeConfidence(6.0 + amountSizeScore + visualFormatScore + contextScore),
               detectionMethod: 'ultra_fallback',
               originalText: line,
             ));
@@ -649,7 +661,7 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
             amount,
             currency: null, // Will be detected from context
             lineIndex: i,
-            confidence: 8.0 + amountSizeScore + visualFormatScore + positionScore + contextScore,
+            confidence: _normalizeConfidence(8.0 + amountSizeScore + visualFormatScore + positionScore + contextScore),
             detectionMethod: 'isolated_large_amount',
             originalText: line,
           ));
@@ -691,7 +703,87 @@ AmountMatch? findTotalByKeywords(List<String> lines) {
   }
   print('=' * 80);
   
-  return finalResult;
+  return allCandidates;
+}
+
+AmountMatch? findTotalByKeywords(List<String> lines) {
+  final candidates = _collectTotalCandidates(lines);
+  if (candidates.isEmpty) return null;
+  return _selectBestCandidate(candidates, lines);
+}
+
+List<AmountCandidate> findTotalCandidates(List<String> lines, {int limit = 5}) {
+  final candidates = _collectTotalCandidates(lines);
+  if (candidates.isEmpty) return const [];
+
+  // Sort by confidence, then amount size
+  candidates.sort((a, b) {
+    final confidenceCompare = b.confidence.compareTo(a.confidence);
+    if (confidenceCompare != 0) return confidenceCompare;
+    return b.amount.compareTo(a.amount);
+  });
+
+  // Deduplicate by amount + line index to avoid noisy repeats
+  final seen = <String>{};
+  final unique = <AmountMatch>[];
+  for (final candidate in candidates) {
+    final key = '${candidate.amount}|${candidate.lineIndex}|${candidate.originalText}';
+    if (seen.add(key)) {
+      unique.add(candidate);
+    }
+  }
+
+  return unique
+      .take(limit)
+      .map((candidate) => AmountCandidate(
+            amount: candidate.amount,
+            currency: candidate.currency,
+            confidence: candidate.confidence,
+            method: candidate.detectionMethod,
+            lineIndex: candidate.lineIndex,
+            originalText: candidate.originalText,
+          ))
+      .toList();
+}
+
+/// Find a total amount close to a target (e.g., line item sum).
+AmountMatch? findTotalNearAmount(List<String> lines, double target, double tolerance) {
+  final candidates = <AmountMatch>[];
+  final bottomLines = _getBottomSection(lines, 10);
+  final bottomStartIndex = lines.length - bottomLines.length;
+
+  for (var i = 0; i < bottomLines.length; i++) {
+    final globalIndex = bottomStartIndex + i;
+    final line = bottomLines[i];
+    final upperLine = line.toUpperCase();
+
+    final amounts = _extractAmountsFromLine(line, globalIndex, 'near_target');
+    for (final amount in amounts) {
+      final diff = (amount.amount - target).abs();
+      if (diff <= tolerance) {
+        // Prefer lines with total keywords
+        final keywordBoost = (upperLine.contains('TOTAL') || upperLine.contains('AMOUNT')) ? 0.1 : 0.0;
+        final normalized = ((1.0 - (diff / tolerance)) + keywordBoost).clamp(0.0, 1.0);
+        candidates.add(AmountMatch(
+          amount.amount,
+          currency: amount.currency,
+          lineIndex: globalIndex,
+          confidence: normalized,
+          detectionMethod: 'near_target',
+          originalText: line,
+        ));
+      }
+    }
+  }
+
+  if (candidates.isEmpty) return null;
+  candidates.sort((a, b) {
+    final confidenceCompare = b.confidence.compareTo(a.confidence);
+    if (confidenceCompare != 0) return confidenceCompare;
+    return b.amount.compareTo(a.amount);
+  });
+
+  return candidates.first;
 }
 
 // Enhanced method to detect total-like lines
@@ -771,11 +863,12 @@ AmountMatch? _findTotalByStructure(List<String> lines) {
         final amountSizeScore = _calculateAmountSizeScore(candidate.amount);
         final visualFormatScore = _calculateVisualFormatScore(line, candidate.amount);
         final contextScore = _calculateContextScore(line, i, 100, candidate.amount);
+        final rawConfidence = 11.0 + amountSizeScore + visualFormatScore + contextScore;
         return AmountMatch(
           candidate.amount,
           currency: candidate.currency,
           lineIndex: i,
-          confidence: 11.0 + amountSizeScore + visualFormatScore + contextScore,
+          confidence: _normalizeConfidence(rawConfidence),
           detectionMethod: 'structure_after_tax',
           originalText: line,
         );
@@ -810,11 +903,12 @@ AmountMatch? _findSelectiveFallback(List<String> lines) {
         final amountSizeScore = _calculateAmountSizeScore(amount.amount);
         final visualFormatScore = _calculateVisualFormatScore(line, amount.amount);
         final contextScore = _calculateContextScore(line, globalIndex, lines.length, amount.amount);
+        final rawConfidence = 4.0 + _calculatePositionScore(globalIndex, lines.length) + amountSizeScore + visualFormatScore + contextScore;
         candidates.add(AmountMatch(
           amount.amount,
           currency: amount.currency,
           lineIndex: globalIndex,
-          confidence: 4.0 + _calculatePositionScore(globalIndex, lines.length) + amountSizeScore + visualFormatScore + contextScore,
+          confidence: _normalizeConfidence(rawConfidence),
           detectionMethod: 'selective_fallback',
           originalText: line,
         ));
@@ -1045,11 +1139,12 @@ bool _isObviousItemLine(String line) {
           final amountSizeScore = _calculateAmountSizeScore(amount);
           final visualFormatScore = _calculateVisualFormatScore(line, amount);
           final contextScore = _calculateContextScore(line, lineIndex, 100, amount); // Use 100 as default totalLines
+          final rawConfidence = amountSizeScore + visualFormatScore + contextScore;
           final candidate = AmountMatch(
             amount,
             currency: currency,
             lineIndex: lineIndex,
-            confidence: amountSizeScore + visualFormatScore + contextScore, // Include amount size, visual format, and context in base confidence
+            confidence: _normalizeConfidence(rawConfidence),
             detectionMethod: method,
             originalText: line,
           );
@@ -1697,7 +1792,7 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
     // Find candidates with high confidence (within 10.0 of the best) - very lenient
     final bestConfidence = best.confidence;
     final highConfidenceCandidates = candidates.where((c) => 
-        (bestConfidence - c.confidence) <= 10.0).toList();
+        (bestConfidence - c.confidence) <= _conf(10.0)).toList();
     
     print('🔍 DEBUG: High confidence candidates (within 10.0 of best): ${highConfidenceCandidates.length}');
     
@@ -1713,7 +1808,7 @@ AmountMatch? _selectBestCandidate(List<AmountMatch> candidates, List<String> lin
     // Fallback: prefer the one that's not an obvious item amount
     for (final candidate in candidates) {
       final line = lines[candidate.lineIndex];
-      if (!_isObviousItemLine(line) && candidate.confidence > 2.0) { // Very low threshold
+      if (!_isObviousItemLine(line) && candidate.confidence > _conf(2.0)) { // Very low threshold
         print('🔍 ENHANCED: Selected non-item candidate: $candidate');
         return candidate;
       }

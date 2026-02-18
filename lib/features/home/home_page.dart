@@ -19,7 +19,6 @@ import '../../core/services/personal_subscription_reminder_service.dart';
 import '../../core/services/budget_streak_service.dart';
 import '../../core/services/budget_notification_service.dart';
 import '../../core/services/category_service.dart';
-import '../collaboration/budget_collaboration_page.dart';
 import 'home_spending_providers.dart';
 import '../../core/widgets/empty_state_widget.dart';
 import '../../core/widgets/monthly_budget_dialog.dart';
@@ -1326,113 +1325,6 @@ Managing my finances with SmartReceipt! 📱
     );
   }
 
-  Widget _buildFamilyBudgetPromo() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF16213e), Color(0xFF1a2947)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF16213e).withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const BudgetCollaborationPage(),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                // Icon
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.people,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                // Text
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Family Budgets',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Share budgets & track spending together',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withOpacity(0.85),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.orange,
-                      width: 1.5,
-                    ),
-                  ),
-                  child: const Text(
-                    'NEW',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.white70,
-                  size: 16,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildQuickActions(int achievementsCount) {
     // All quick action boxes (Scan, Achievements, Storage, Pro subscription) removed
     return const SizedBox.shrink();
@@ -1852,8 +1744,6 @@ Managing my finances with SmartReceipt! 📱
                       const SizedBox(height: 24),
                       _buildSectionHeader('Monthly Trend'),
                       _buildMonthlySpendingGraph(),
-                      _buildSectionHeader('Family Budget'),
-                      _buildFamilyBudgetPromo(),
                       if (!PremiumService.isPremium) ...[
                         _buildSectionHeader('Usage'),
                         const UsageTracker(),

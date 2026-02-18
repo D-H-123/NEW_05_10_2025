@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smart_receipt/core/services/local_storage_service.dart';
@@ -13,8 +16,6 @@ import '../../core/widgets/responsive_layout.dart';
 import '../../core/widgets/modern_widgets.dart';
 import '../../core/services/premium_service.dart';
 import '../../core/widgets/simplified_subscription_reminder_settings.dart';
-import '../collaboration/budget_collaboration_page.dart';
-
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -37,372 +38,191 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _monthlyBudget = LocalStorageService.getDoubleSetting(LocalStorageService.kMonthlyBudget);
   }
 
+  static const Color _rowBorder = Color(0xFFf1f5f9);
+  static const Color _rowHover = Color(0xFFf8fafc);
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.lightTheme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text(
-          'Profile & Settings',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back,
-            color: Colors.black87,
-          ),
-          onPressed: () {
-            // Check if we can pop the route, otherwise go to home
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            } else {
-              // If accessed from bottom navigation, go to home
-              context.go('/home');
-            }
-          },
-        ),
-        actions: const [],
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
       ),
-      body: ResponsiveContainer(
-        maxWidth: 600,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: ResponsiveColumn(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const ResponsiveSpacer(height: 16),
-              
-              // Profile Section - Rectangular and Clickable
-              _buildProfileSection(),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Currency - Most Important
-              _buildModernSettingCard(
-                context,
-                icon: Icons.currency_exchange,
-                iconColor: Colors.green,
-                title: 'Default Currency',
-                subtitle: 'Set your preferred currency for receipts',
-                trailing: Consumer(
-                  builder: (context, ref, child) {
-                    final currentCode = _selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode;
-                    final symbol = ref.read(currencyProvider.notifier).symbolFor(currentCode);
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.green.withOpacity(0.3)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            symbol,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
+    );
+    return Scaffold(
+      backgroundColor: const Color(0xFFf8fafc),
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildProfileHeader(context),
+            ResponsiveContainer(
+              maxWidth: 600,
+              padding: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 24, bottom: 100),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionLabel('Financial'),
+                      _buildSettingsCard(
+                        context,
+                        rows: [
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.attach_money,
+                            iconGradient: const [Color(0xFF3b82f6), Color(0xFF2563eb)],
+                            title: 'Default Currency',
+                            trailing: Consumer(
+                              builder: (context, ref, _) {
+                                final currentCode = _selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode;
+                                final symbol = ref.read(currencyProvider.notifier).symbolFor(currentCode);
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text('$symbol $currentCode', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.chevron_right, size: 20, color: Colors.grey[400]),
+                                  ],
+                                );
+                              },
                             ),
+                            onTap: () async {
+                              final current = ref.read(currencyProvider).currencyCode;
+                              await showCurrencyPicker(
+                                context: context,
+                                selectedCode: _selectedCurrencyCode ?? current,
+                                onSelected: (code) async {
+                                  await ref.read(currencyProvider.notifier).setCurrency(code);
+                                  if (mounted) setState(() => _selectedCurrencyCode = code);
+                                },
+                              );
+                            },
+                            showDivider: true,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            currentCode,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green,
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.account_balance_wallet,
+                            iconGradient: [AppTheme.darkBlue, AppTheme.darkBlueLight],
+                            title: 'Monthly Budget',
+                            trailing: Consumer(
+                              builder: (context, ref, _) {
+                                final sym = ref.read(currencyProvider.notifier).symbolFor(_selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode);
+                                final value = _monthlyBudget != null ? '$sym${_monthlyBudget!.toStringAsFixed(0)}' : 'Not set';
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(value, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.chevron_right, size: 20, color: Colors.grey[400]),
+                                  ],
+                                );
+                              },
                             ),
+                            onTap: () => _showBudgetDialog(),
+                            showDivider: false,
                           ),
                         ],
                       ),
-                    );
-                  },
-                ),
-                onTap: () async {
-                  final current = ref.read(currencyProvider).currencyCode;
-                  await showCurrencyPicker(
-                    context: context,
-                    selectedCode: _selectedCurrencyCode ?? current,
-                    onSelected: (code) async {
-                      await ref.read(currencyProvider.notifier).setCurrency(code);
-                      if (mounted) {
-                        setState(() {
-                          _selectedCurrencyCode = code;
-                        });
-                      }
-                    },
-                  );
-                },
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Monthly Budget
-              _buildModernSettingCard(
-                context,
-                icon: Icons.account_balance_wallet,
-                iconColor: Colors.blue,
-                title: 'Monthly Budget',
-                subtitle: 'Set your monthly spending goal',
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _monthlyBudget != null 
-                        ? Colors.blue.withOpacity(0.1)
-                        : Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _monthlyBudget != null 
-                          ? Colors.blue.withOpacity(0.3)
-                          : Colors.orange.withOpacity(0.3),
-                    ),
-                  ),
-                  child: Text(
-                    _monthlyBudget != null 
-                        ? '${ref.read(currencyProvider.notifier).symbolFor(_selectedCurrencyCode ?? ref.read(currencyProvider).currencyCode)}${_monthlyBudget!.toStringAsFixed(0)}'
-                        : 'Not Set',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: _monthlyBudget != null ? Colors.blue : Colors.orange[700],
-                    ),
-                  ),
-                ),
-                onTap: () => _showBudgetDialog(),
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Budget Collaboration (Family Budgets) - Premium Feature
-              _buildModernSettingCard(
-                context,
-                icon: Icons.people,
-                iconColor: Colors.teal,
-                title: 'Family Budgets',
-                subtitle: 'Share budgets with family members',
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.orange,
-                          width: 1,
-                        ),
+                      const SizedBox(height: 24),
+                      _buildSectionLabel('Customization'),
+                      _buildSettingsCard(
+                        context,
+                        rows: [
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.folder_open,
+                            iconGradient: const [Color(0xFF0ea5e9), Color(0xFF0284c7)],
+                            title: 'Custom Categories',
+                            trailing: Icon(Icons.chevron_right, size: 20, color: Colors.grey[400]),
+                            onTap: () => context.push('/settings/custom-categories'),
+                            showDivider: false,
+                          ),
+                        ],
                       ),
-                      child: const Text(
-                        'PREMIUM',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange,
-                          letterSpacing: 0.5,
-                        ),
+                      const SizedBox(height: 24),
+                      _buildSectionLabel('Features'),
+                      _buildSettingsCard(
+                        context,
+                        rows: [
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.calendar_today,
+                            iconGradient: const [Color(0xFF3b82f6), Color(0xFF2563eb)],
+                            title: 'Calendar Integration',
+                            trailing: _buildPillSwitch(
+                              value: _calendarResults,
+                              onChanged: (v) async {
+                                setState(() => _calendarResults = v);
+                                await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, v);
+                              },
+                            ),
+                            onTap: () async {
+                              setState(() => _calendarResults = !_calendarResults);
+                              await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, _calendarResults);
+                            },
+                            showDivider: true,
+                          ),
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.notifications,
+                            iconGradient: const [Color(0xFF6366f1), Color(0xFF4f46e5)],
+                            title: 'Notifications',
+                            trailing: Icon(Icons.chevron_right, size: 20, color: Colors.grey[400]),
+                            onTap: () => _showUnifiedNotificationSettings(context),
+                            showDivider: true,
+                          ),
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.note_add,
+                            iconGradient: const [Color(0xFF0ea5e9), Color(0xFF0284c7)],
+                            title: 'Notes Support',
+                            trailing: _buildPillSwitch(
+                              value: _notes,
+                              onChanged: (v) async {
+                                setState(() => _notes = v);
+                                await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, v);
+                              },
+                            ),
+                            onTap: () async {
+                              setState(() => _notes = !_notes);
+                              await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, _notes);
+                            },
+                            showDivider: false,
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.grey,
-                      size: 16,
-                    ),
-                  ],
-                ),
-                onTap: () {
-                  print('🎯 Family Budgets tapped! Navigating...');
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const BudgetCollaborationPage(),
-                    ),
-                  );
-                },
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Custom Categories
-              _buildModernSettingCard(
-                context,
-                icon: Icons.category,
-                iconColor: Colors.purple,
-                title: 'Custom Categories',
-                subtitle: 'Create and manage your own expense categories',
-                isPremium: true,
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  context.push('/settings/custom-categories');
-                },
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Calendar Integration
-              _buildModernSettingCard(
-                context,
-                icon: Icons.calendar_today,
-                iconColor: Colors.blueGrey,
-                title: 'Calendar Integration',
-                subtitle: 'Show receipts in calendar view',
-                isPremium: true,
-                trailing: Switch(
-                  value: _calendarResults,
-                  onChanged: (v) async {
-                    setState(() => _calendarResults = v);
-                    await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, v);
-                  },
-                  activeThumbColor: Colors.blueGrey,
-                ),
-                onTap: () async {
-                  setState(() => _calendarResults = !_calendarResults);
-                  await LocalStorageService.setBoolSetting(LocalStorageService.kCalendarResults, _calendarResults);
-                },
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Unified Notifications
-              _buildModernSettingCard(
-                context,
-                icon: Icons.notifications,
-                iconColor: Colors.orange,
-                title: 'Notifications',
-                subtitle: 'Budget alerts, reminders & more',
-                trailing: const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.grey,
-                  size: 16,
-                ),
-                onTap: () => _showUnifiedNotificationSettings(context),
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Notes Support
-              _buildModernSettingCard(
-                context,
-                icon: Icons.note_add,
-                iconColor: Colors.teal,
-                title: 'Notes Support',
-                subtitle: 'Add notes to your receipts',
-                trailing: Switch(
-                  value: _notes,
-                  onChanged: (v) async {
-                    setState(() => _notes = v);
-                    await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, v);
-                  },
-                  activeThumbColor: Colors.teal,
-                ),
-                onTap: () async {
-                  setState(() => _notes = !_notes);
-                  await LocalStorageService.setBoolSetting(LocalStorageService.kNotes, _notes);
-                },
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Testing Section (only show in debug mode)
-              if (const bool.fromEnvironment('dart.vm.product') == false) ...[
-                // Premium Testing
-                ResponsiveCard(
-                  child: _buildTestingTile(
-                    context,
-                    icon: Icons.star,
-                    title: 'Premium Status',
-                    subtitle: 'Current: ${PremiumService.isPremium ? "Premium" : "Free"} (${PremiumService.scanCount}/2 scans used)',
-                    onTap: _togglePremiumStatus,
+                      const SizedBox(height: 24),
+                      _buildSectionLabel('Support'),
+                      _buildSettingsCard(
+                        context,
+                        rows: [
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.privacy_tip,
+                            iconGradient: const [Color(0xFF0ea5e9), Color(0xFF0284c7)],
+                            title: 'Privacy Policy',
+                            trailing: Icon(Icons.chevron_right, size: 20, color: Colors.grey[400]),
+                            onTap: () => _showPrivacyPolicy(context),
+                            showDivider: true,
+                          ),
+                          _buildSettingsRow(
+                            context,
+                            icon: Icons.info_outline,
+                            iconGradient: [Colors.grey[600]!, Colors.grey[700]!],
+                            title: 'About',
+                            trailing: Icon(Icons.chevron_right, size: 20, color: Colors.grey[400]),
+                            onTap: () => _showAboutDialog(context),
+                            showDivider: false,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                
-                // Reset Scan Count
-                ResponsiveCard(
-                  child: _buildTestingTile(
-                    context,
-                    icon: Icons.refresh,
-                    title: 'Reset Scan Count',
-                    subtitle: 'Reset free scan counter for testing',
-                    onTap: _resetScanCount,
-                  ),
-                ),
-                
-                // Start Free Trial
-                ResponsiveCard(
-                  child: _buildTestingTile(
-                    context,
-                    icon: Icons.timer,
-                    title: 'Start Free Trial',
-                    subtitle: 'Activate 7-day free trial for testing',
-                    onTap: _startFreeTrial,
-                  ),
-                ),
-                
-                const ResponsiveSpacer(height: 8),
-              ],
-              
-              // Export Data
-              _buildModernSettingCard(
-                context,
-                icon: Icons.download,
-                iconColor: AppTheme.primaryGradientStart,
-                title: 'Export Data',
-                subtitle: 'Export all receipts as CSV or PDF',
-                trailing: const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.grey,
-                  size: 16,
-                ),
-                onTap: () => _showExportDialog(context),
               ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // Privacy Policy
-              _buildModernSettingCard(
-                context,
-                icon: Icons.privacy_tip,
-                iconColor: AppTheme.infoColor,
-                title: 'Privacy Policy',
-                subtitle: 'View our privacy policy',
-                trailing: const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.grey,
-                  size: 16,
-                ),
-                onTap: () => _showPrivacyPolicy(context),
-              ),
-              
-              const ResponsiveSpacer(height: 8),
-              
-              // About
-              _buildModernSettingCard(
-                context,
-                icon: Icons.info,
-                iconColor: Colors.grey[600]!,
-                title: 'About',
-                subtitle: 'App version and information',
-                trailing: const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.grey,
-                  size: 16,
-                ),
-                onTap: () => _showAboutDialog(context),
-              ),
-              
-              const ResponsiveSpacer(height: 40), // Space for bottom navigation
-            ],
-          ),
+          ],
         ),
       ),
       bottomNavigationBar: ModernBottomNavigationBar(
@@ -452,121 +272,484 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildProfileSection() {
+  Widget _buildProfileHeader(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final currentUser = FirebaseAuth.instance.currentUser;
-    
-    // Determine if user is signed in and get user info
-    final bool isSignedIn = authState.status == AuthStatus.signedIn && currentUser != null;
-    
-    String displayName = 'Smart Receipt User';
-    String subtitle = 'Sign up to sync your data';
-    
-    if (isSignedIn) {
-      displayName = currentUser.displayName ?? 'Smart Receipt User';
-      subtitle = currentUser.email ?? 'user@smartreceipt.com';
-    }
-    final IconData actionIcon = isSignedIn ? Icons.person : Icons.login;
-    
-    return ResponsiveCard(
-      onTap: () {
-        if (!isSignedIn) {
-          // Navigate to sign up page if not signed in
-          context.go('/sign-up');
-        } else {
-          // Show profile options if signed in
-          _showProfileOptions();
-        }
-      },
-      child: Container(
-        width: double.infinity,
-        padding: EdgeInsets.all(context.responsivePadding),
-        child: Row(
-          children: [
-            // Profile Avatar - Circular
-            Container(
-              width: context.isMobile ? 60 : 70,
-              height: context.isMobile ? 60 : 70,
+    final isSignedIn = authState.status == AuthStatus.signedIn && currentUser != null;
+    final displayName = isSignedIn
+        ? (currentUser.displayName ?? 'Smart Receipt User')
+        : 'Smart Receipt User';
+    final email = isSignedIn ? (currentUser.email ?? 'user@smartreceipt.com') : 'user@smartreceipt.com';
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+
+    final topPadding = MediaQuery.of(context).padding.top;
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: AppTheme.darkBlueGradient,
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.zero,
+          bottomRight: Radius.zero,
+        ),
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Decorative circles
+          Positioned(
+            top: -80,
+            right: -40,
+            child: Container(
+              width: 160,
+              height: 160,
               decoration: BoxDecoration(
-                gradient: isSignedIn ? AppTheme.primaryGradient : AppTheme.secondaryGradient,
                 shape: BoxShape.circle,
-                boxShadow: AppTheme.cardShadow,
-              ),
-              child: Icon(
-                isSignedIn ? Icons.person : Icons.person_add,
-                size: context.isMobile ? 30 : 35,
-                color: Colors.white,
+                color: Colors.white.withOpacity(0.1),
               ),
             ),
-            
-            const SizedBox(width: 16),
-            
-            // Profile Info - Takes remaining space
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ResponsiveText(
-                    displayName,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ResponsiveText(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: isSignedIn ? AppTheme.primaryGradientStart : Colors.orange[600],
-                      fontWeight: isSignedIn ? FontWeight.w500 : FontWeight.w600,
-                    ),
-                  ),
-                  
-                  // Subscription Status Indicator
-                  if (isSignedIn) ...[
-                    const SizedBox(height: 8),
-                    _buildSubscriptionStatus(),
-                  ],
-                  
-                  if (!isSignedIn) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: AppTheme.smallBorderRadius,
-                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+          ),
+          Positioned(
+            bottom: -64,
+            left: -32,
+            child: Container(
+              width: 128,
+              height: 128,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.1),
+              ),
+            ),
+          ),
+          // Content - blue has no side padding; only top for status bar, bottom for spacing
+          Padding(
+            padding: EdgeInsets.only(
+              left: 0,
+              right: 0,
+              top: topPadding + 8,
+              bottom: 28,
+            ),
+            child: Row(
+              children: [
+                // Left: avatar + name/email (tappable for profile options)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        if (!isSignedIn) context.go('/sign-up');
+                        else _showProfileOptions();
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Text(
+                                initial,
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.darkBlue,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  email,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.white.withOpacity(0.75),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        'Tap to Sign Up',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange[700],
-                          fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  ),
+                ),
+                // Right: Share button
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _shareProfile(context),
+                      borderRadius: BorderRadius.circular(24),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.share_rounded,
+                          color: Colors.white,
+                          size: 22,
                         ),
                       ),
                     ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const String _playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.smartreceipt.app';
+  static const String _shareMessage =
+      'Track your expenses effortlessly with Smart Receipt! Download now:\n$_playStoreUrl';
+
+  void _shareProfile(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Share Smart Receipt',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Invite friends to try the app',
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildShareOption(
+                      ctx,
+                      label: 'WhatsApp',
+                      icon: Icons.chat_rounded,
+                      color: const Color(0xFF25D366),
+                      onTap: () => _openShareUrl(
+                        ctx,
+                        'https://wa.me/?text=${Uri.encodeComponent(_shareMessage)}',
+                      ),
+                    ),
+                    _buildShareOption(
+                      ctx,
+                      label: 'Instagram',
+                      icon: Icons.camera_alt_rounded,
+                      color: const Color(0xFFE1306C),
+                      onTap: () => _openShareUrl(
+                        ctx,
+                        'https://www.instagram.com/',
+                      ),
+                    ),
+                    _buildShareOption(
+                      ctx,
+                      label: 'X',
+                      icon: Icons.alternate_email,
+                      color: Colors.black87,
+                      onTap: () => _openShareUrl(
+                        ctx,
+                        'https://twitter.com/intent/tweet?text=${Uri.encodeComponent(_shareMessage)}',
+                      ),
+                    ),
+                    _buildShareOption(
+                      ctx,
+                      label: 'Facebook',
+                      icon: Icons.facebook_rounded,
+                      color: const Color(0xFF1877F2),
+                      onTap: () => _openShareUrl(
+                        ctx,
+                        'https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent(_playStoreUrl)}',
+                      ),
+                    ),
+                    _buildShareOption(
+                      ctx,
+                      label: 'Copy Link',
+                      icon: Icons.link_rounded,
+                      color: AppTheme.darkBlue,
+                      onTap: () {
+                        Clipboard.setData(const ClipboardData(text: _playStoreUrl));
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Link copied to clipboard'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Share.share(_shareMessage);
+                    },
+                    icon: const Icon(Icons.share_rounded, size: 20),
+                    label: const Text('More options'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.darkBlue,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.grey[300]!),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShareOption(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openShareUrl(BuildContext context, String url) async {
+    Navigator.pop(context);
+    final uri = Uri.parse(url);
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      Share.share(_shareMessage);
+    }
+  }
+
+  Widget _buildSectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[500],
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsCard(BuildContext context, {required List<Widget> rows}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: rows),
+    );
+  }
+
+  Widget _buildSettingsRow(
+    BuildContext context, {
+    required IconData icon,
+    required List<Color> iconGradient,
+    required String title,
+    required Widget trailing,
+    required VoidCallback onTap,
+    required bool showDivider,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            hoverColor: _rowHover,
+            splashColor: _rowBorder,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: iconGradient,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: iconGradient.first.withOpacity(0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(icon, size: 18, color: Colors.white),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                  ),
+                  trailing,
                 ],
               ),
             ),
-            
-            // Action Icon
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isSignedIn 
-                    ? AppTheme.primaryGradientStart.withOpacity(0.1)
-                    : Colors.orange.withOpacity(0.1),
-                borderRadius: AppTheme.smallBorderRadius,
-              ),
-              child: Icon(
-                actionIcon,
-                color: isSignedIn ? AppTheme.primaryGradientStart : Colors.orange[600],
-                size: 20,
-              ),
+          ),
+        ),
+        if (showDivider)
+          Divider(height: 1, thickness: 1, color: _rowBorder, indent: 64),
+      ],
+    );
+  }
+
+  Widget _buildPillSwitch({required bool value, required ValueChanged<bool> onChanged}) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 48,
+        height: 28,
+        decoration: BoxDecoration(
+          color: value ? AppTheme.darkBlue : Colors.grey[300],
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
           ],
+        ),
+        child: Align(
+          alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 4,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -696,183 +879,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   );
                 }
               }
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Modern Setting Card
-  Widget _buildModernSettingCard(
-    BuildContext context, {
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String subtitle,
-    required Widget trailing,
-    required VoidCallback onTap,
-    bool isPremium = false,
-    bool isNew = false,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(16),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                child: Row(
-                  children: [
-                    // Icon
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: iconColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        icon,
-                        color: iconColor,
-                        size: 22,
-                      ),
-                    ),
-                    
-                    const SizedBox(width: 16),
-                    
-                     // Content
-                     Expanded(
-                       child: Column(
-                         crossAxisAlignment: CrossAxisAlignment.start,
-                         children: [
-                           Row(
-                             children: [
-                               Expanded(
-                                 child: Text(
-                                   title,
-                                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                     fontWeight: FontWeight.w600,
-                                     color: Colors.black87,
-                                   ),
-                                 ),
-                               ),
-                               if (isNew) ...[
-                                 const SizedBox(width: 6),
-                                 Container(
-                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                   decoration: BoxDecoration(
-                                     color: Colors.red,
-                                     borderRadius: BorderRadius.circular(8),
-                                   ),
-                                   child: const Text(
-                                     'NEW',
-                                     style: TextStyle(
-                                       color: Colors.white,
-                                       fontSize: 9,
-                                       fontWeight: FontWeight.bold,
-                                     ),
-                                   ),
-                                 ),
-                               ],
-                             ],
-                           ),
-                           const SizedBox(height: 4),
-                           Text(
-                             subtitle,
-                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                               color: Colors.grey[600],
-                             ),
-                           ),
-                         ],
-                       ),
-                     ),
-                    
-                    const SizedBox(width: 16),
-                    
-                    // Trailing
-                    trailing,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          
-          // Premium badge at top-right corner (half overflow)
-          if (isPremium)
-            Positioned(
-              top: -12,
-              right: -3,
-              child: Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Colors.amber[600],
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 2,
-                  ),
-                  
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.diamond,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-
-  void _showExportDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppTheme.largeBorderRadius,
-        ),
-        title: const Text(
-          'Export Data',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        content: const Text(
-          'Choose the format to export your receipt data:',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ModernButton(
-            text: 'Export CSV',
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO: Implement CSV export
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('CSV export feature coming soon!')),
-              );
             },
           ),
         ],
@@ -1162,117 +1168,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             },
           ),
         ],
-      ),
-    );
-  }
-
-  // Testing methods
-  void _togglePremiumStatus() {
-    setState(() {
-      // Toggle premium status for testing
-      if (PremiumService.isPremium) {
-        // Reset to free
-        PremiumService.setPremiumStatus(false);
-      } else {
-        // Set to premium
-        PremiumService.setPremiumStatus(true);
-      }
-    });
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          PremiumService.isPremium 
-            ? 'Premium activated for testing!' 
-            : 'Switched to free tier for testing!'
-        ),
-        backgroundColor: PremiumService.isPremium ? Colors.green : Colors.orange,
-      ),
-    );
-  }
-
-  void _resetScanCount() async {
-    // Reset scan count for testing
-    await PremiumService.resetScanCount();
-    setState(() {});
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Scan count reset for testing!'),
-        backgroundColor: Colors.blue,
-      ),
-    );
-  }
-
-  void _startFreeTrial() async {
-    await PremiumService.startFreeTrial();
-    setState(() {});
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('7-day free trial started for testing!'),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-
-  Widget _buildTestingTile(BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                icon,
-                color: Colors.orange,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.arrow_forward_ios,
-              size: 16,
-              color: Colors.grey[400],
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -20,6 +20,7 @@ class AnalysisPage extends StatefulWidget {
 
 class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   int _selectedTimeFilter = 1; // 0: Week, 1: Month, 2: Year
+  int _periodOffset = 0; // 0 = current, 1 = previous, 2 = two periods ago
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late final AnalyticsRepository _analyticsRepository;
@@ -63,15 +64,15 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
         'USD';
 
     try {
+      final comparisonOffset = _periodOffset + 1;
       final results = await Future.wait([
-        _analyticsRepository.getBills(filter: filter),
-        _analyticsRepository.getPreviousPeriodBills(filter),
+        _analyticsRepository.getBillsForPeriod(filter, _periodOffset),
+        _analyticsRepository.getBillsForPeriod(filter, comparisonOffset),
       ]);
       final bills = results[0];
       final previousBills = results[1];
       final service = ExchangeRateService.instance;
 
-      // Convert each bill to display currency and sum (display-time conversion only)
       double totalSpent = 0.0;
       final categoryTotals = <String, double>{};
       final byVendor = <String, double>{};
@@ -135,43 +136,131 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   void _onTimeFilterChanged(int index) {
     setState(() {
       _selectedTimeFilter = index;
+      _periodOffset = 0;
     });
     _animationController.reset();
     _animationController.forward();
     _fetchBills();
   }
 
+  void _onPeriodOffsetChanged(int offset) {
+    if (offset == _periodOffset) return;
+    setState(() {
+      _periodOffset = offset;
+    });
+    _animationController.reset();
+    _animationController.forward();
+    _fetchBills();
+  }
+
+  void _showPeriodPicker() {
+    final items = _buildPeriodDropdownItems();
+    final RenderBox? box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    
+    showMenu<int>(
+      context: context,
+      position: RelativeRect.fromLTRB(16, 280, 200, 0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: Colors.white,
+      elevation: 8,
+      items: items.map((item) {
+        final offset = item.value!;
+        final isSelected = offset == _periodOffset;
+        return PopupMenuItem<int>(
+          value: offset,
+          child: Row(
+            children: [
+              if (isSelected)
+                Container(
+                  width: 4,
+                  height: 20,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.bottomNavBackground,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                )
+              else
+                const SizedBox(width: 14),
+              DefaultTextStyle.merge(
+                style: TextStyle(
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? AppColors.bottomNavBackground : Colors.grey[800],
+                  fontSize: 14,
+                ),
+                child: item.child,
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    ).then((value) {
+      if (value != null) _onPeriodOffsetChanged(value);
+    });
+  }
+
   String _getTimeFilterTitle() {
-    final now = DateTime.now();
+    final filter = TimeFilter.values[_selectedTimeFilter];
+    final range = _analyticsRepository.getDateRangeForPeriod(filter, _periodOffset);
     switch (_selectedTimeFilter) {
       case 0: // Week
-        final weekNumber = _getWeekNumber(now);
+        final weekNumber = _getWeekNumber(range.start);
         return 'Week $weekNumber';
       case 1: // Month
-        final monthNames = [
+        const monthNames = [
           'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
         ];
-        return '${monthNames[now.month - 1]} ${now.year}';
+        return '${monthNames[range.start.month - 1]} ${range.start.year}';
       case 2: // Year
-        return '${now.year}';
+        return '${range.start.year}';
       default:
         return 'Spending by Category';
     }
   }
 
-  /// Period label for donut center: "This week", "This month", "This year".
+  /// Period label for donut center.
   String _getCenterPeriodLabel() {
-    switch (_selectedTimeFilter) {
-      case 0:
-        return 'This week';
-      case 1:
-        return 'This month';
-      case 2:
-        return 'This year';
-      default:
-        return 'This month';
+    if (_periodOffset == 0) {
+      switch (_selectedTimeFilter) {
+        case 0: return 'This week';
+        case 1: return 'This month';
+        case 2: return 'This year';
+        default: return 'This month';
+      }
     }
+    return _getTimeFilterTitle();
+  }
+
+  /// Build dropdown items for the period selector. Returns 3 entries (current + 2 previous).
+  List<DropdownMenuItem<int>> _buildPeriodDropdownItems() {
+    final filter = TimeFilter.values[_selectedTimeFilter];
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return List.generate(3, (offset) {
+      final range = _analyticsRepository.getDateRangeForPeriod(filter, offset);
+      String label;
+      switch (_selectedTimeFilter) {
+        case 0:
+          final wn = _getWeekNumber(range.start);
+          label = offset == 0 ? 'This Week (W$wn)' : 'Week $wn';
+          break;
+        case 1:
+          label = offset == 0
+              ? 'This Month (${monthNames[range.start.month - 1]})'
+              : '${monthNames[range.start.month - 1]} ${range.start.year}';
+          break;
+        case 2:
+          label = offset == 0 ? 'This Year (${range.start.year})' : '${range.start.year}';
+          break;
+        default:
+          label = 'Period $offset';
+      }
+      return DropdownMenuItem<int>(value: offset, child: Text(label, style: const TextStyle(fontSize: 14)));
+    });
   }
 
   int _getWeekNumber(DateTime date) {
@@ -284,7 +373,7 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.grey[200], // Restored to original grey background
+        color: Colors.grey[200],
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -312,7 +401,6 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
                     fontWeight: _selectedTimeFilter == index
                         ? FontWeight.bold
                         : FontWeight.normal,
-                    // Disable text color if loading
                     decoration: _isLoading ? TextDecoration.lineThrough : null,
                   ),
                 ),
@@ -414,18 +502,36 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
     );
   }
 
-  /// Labels for comparison card: "Last month" / "This month" (or week/year).
+  /// Labels for comparison card, offset-aware.
   ({String lastPeriod, String thisPeriod}) _getPeriodLabel() {
-    switch (_selectedTimeFilter) {
-      case 0:
-        return (lastPeriod: 'Last week', thisPeriod: 'This week');
-      case 1:
-        return (lastPeriod: 'Last month', thisPeriod: 'This month');
-      case 2:
-        return (lastPeriod: 'Last year', thisPeriod: 'This year');
-      default:
-        return (lastPeriod: 'Last month', thisPeriod: 'This month');
+    final filter = TimeFilter.values[_selectedTimeFilter];
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+
+    String labelForOffset(int offset) {
+      if (offset == 0) {
+        switch (_selectedTimeFilter) {
+          case 0: return 'This week';
+          case 1: return 'This month';
+          case 2: return 'This year';
+          default: return 'This month';
+        }
+      }
+      final range = _analyticsRepository.getDateRangeForPeriod(filter, offset);
+      switch (_selectedTimeFilter) {
+        case 0: return 'Week ${_getWeekNumber(range.start)}';
+        case 1: return '${monthNames[range.start.month - 1]} ${range.start.year}';
+        case 2: return '${range.start.year}';
+        default: return '';
+      }
     }
+
+    return (
+      lastPeriod: labelForOffset(_periodOffset + 1),
+      thisPeriod: labelForOffset(_periodOffset),
+    );
   }
 
   /// Returns appropriate color based on spending change magnitude
@@ -445,15 +551,25 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
   }
 
   String _getPeriodText() {
+    if (_periodOffset == 0) {
+      switch (_selectedTimeFilter) {
+        case 0: return 'last week';
+        case 1: return 'last month';
+        case 2: return 'last year';
+        default: return 'last month';
+      }
+    }
+    final filter = TimeFilter.values[_selectedTimeFilter];
+    final prevRange = _analyticsRepository.getDateRangeForPeriod(filter, _periodOffset + 1);
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
     switch (_selectedTimeFilter) {
-      case 0: // Week
-        return 'last week';
-      case 1: // Month
-        return 'last month';
-      case 2: // Year
-        return 'last year';
-      default:
-        return 'last month';
+      case 0: return 'Week ${_getWeekNumber(prevRange.start)}';
+      case 1: return '${monthNames[prevRange.start.month - 1]} ${prevRange.start.year}';
+      case 2: return '${prevRange.start.year}';
+      default: return 'prior period';
     }
   }
 
@@ -589,12 +705,22 @@ class _AnalysisPageState extends State<AnalysisPage> with TickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            _getTimeFilterTitle(),
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+          GestureDetector(
+            onTap: _isLoading ? null : () => _showPeriodPicker(),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _getTimeFilterTitle(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(Icons.keyboard_arrow_down_rounded, size: 22, color: Colors.grey[600]),
+              ],
             ),
           ),
           const SizedBox(height: 16),
@@ -1269,6 +1395,31 @@ class _RoundedDonutPainter extends CustomPainter {
     return path;
   }
 
+  /// Full donut ring (no gaps, no rounded ends). Used when there is only one segment.
+  /// Uses two half-circle arcs because arcTo with a full 2*pi sweep draws nothing in Skia.
+  Path _fullDonutRing({
+    required Offset center,
+    required double rOuter,
+    required double rInner,
+  }) {
+    final outerRect = Rect.fromCircle(center: center, radius: rOuter);
+    final innerRect = Rect.fromCircle(center: center, radius: rInner);
+
+    final path = Path();
+    // Outer ring: two half-circles (top → bottom → top)
+    path.moveTo(center.dx, center.dy - rOuter);
+    path.arcTo(outerRect, -math.pi / 2, math.pi, false);
+    path.arcTo(outerRect, math.pi / 2, math.pi, false);
+
+    // Move inward, then inner ring counter-clockwise
+    path.moveTo(center.dx, center.dy - rInner);
+    path.arcTo(innerRect, -math.pi / 2, -math.pi, false);
+    path.arcTo(innerRect, math.pi / 2, -math.pi, false);
+
+    path.fillType = PathFillType.evenOdd;
+    return path;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
@@ -1277,6 +1428,29 @@ class _RoundedDonutPainter extends CustomPainter {
     final gapRadian = (gapDegrees * math.pi / 180);
     final total = totalValue;
     double startAngle = -math.pi / 2;
+
+    // Single segment: draw a full ring with no gaps and no rounded ends
+    if (segments.length == 1) {
+      final seg = segments.first;
+      final path = _fullDonutRing(center: center, rOuter: outerR, rInner: innerR);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = seg.color.withOpacity(0.75)
+          ..style = PaintingStyle.fill
+          ..isAntiAlias = true,
+      );
+      if (hoveredSegmentIndex == 0) {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.white.withOpacity(0.25)
+            ..style = PaintingStyle.fill
+            ..isAntiAlias = true,
+        );
+      }
+      return;
+    }
 
     for (int i = 0; i < segments.length; i++) {
       final seg = segments[i];

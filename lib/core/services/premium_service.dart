@@ -210,7 +210,6 @@ class PremiumService {
   static bool get isAdvancedAnalyticsAvailable => _currentTier == SubscriptionTier.pro;
   static bool get isUnlimitedScansAvailable => isPremium;
   static bool get isExportAvailable => isPremium;
-  static bool get isTeamCollaborationAvailable => _currentTier == SubscriptionTier.pro;
   
   // Increment scan count
   static Future<void> incrementScanCount() async {
@@ -283,7 +282,6 @@ class PremiumService {
           'Unlimited scans',
           'Premium OCR with AI',
           'Advanced analytics & insights',
-          'Team collaboration',
           'API access',
           'Priority support',
           'Custom categories',

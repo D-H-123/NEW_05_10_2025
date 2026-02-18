@@ -1,6 +1,5 @@
 import 'package:smart_receipt/features/storage/models/bill_model.dart';
 import 'local_storage_service.dart';
-import 'budget_collaboration_service.dart';
 
 enum TimeFilter { week, month, year }
 enum DataSource { local, cloud }
@@ -61,62 +60,48 @@ class AnalyticsRepository {
   }
 
   /// Calculate total spent for a given time filter
-  /// Includes shared expenses if setting is enabled
   Future<double> getTotalSpent({required TimeFilter filter}) async {
     final List<Bill> bills = await getBills(filter: filter);
-    double total = bills.fold<double>(0.0, (double sum, Bill bill) => sum + (bill.total ?? 0.0));
-    
-    // Add shared expenses if setting is enabled
-    final showSharedExpenses = LocalStorageService.getBoolSetting(LocalStorageService.kShowSharedExpenses, defaultValue: false);
-    if (showSharedExpenses) {
-      final sharedExpenseTotal = await _getSharedExpenseTotal(filter);
-      total += sharedExpenseTotal;
-    }
-    
-    return total;
-  }
-
-  /// Get total amount from unpaid shared expenses for a time period
-  Future<double> _getSharedExpenseTotal(TimeFilter filter) async {
-    try {
-      final unpaidExpenses = await BudgetCollaborationService.getUnpaidSharedExpenses().first;
-      if (unpaidExpenses.isEmpty) return 0.0;
-      
-      final now = DateTime.now();
-      DateTime start;
-      switch (filter) {
-        case TimeFilter.week:
-          start = now.subtract(Duration(days: now.weekday - 1));
-          start = DateTime(start.year, start.month, start.day);
-          break;
-        case TimeFilter.month:
-          start = DateTime(now.year, now.month, 1);
-          break;
-        case TimeFilter.year:
-          start = DateTime(now.year, 1, 1);
-          break;
-      }
-      
-      double total = 0.0;
-      for (final unpaid in unpaidExpenses) {
-        final expenseDate = unpaid.expense.date;
-        // Include if expense is within the time period
-        if (!expenseDate.isBefore(start) && !expenseDate.isAfter(now)) {
-          total += unpaid.remainingAmount;
-        }
-      }
-      
-      return total;
-    } catch (e) {
-      print('Error calculating shared expense total: $e');
-      return 0.0;
-    }
+    return bills.fold<double>(0.0, (double sum, Bill bill) => sum + (bill.total ?? 0.0));
   }
 
   /// Calculate total spent for a specific date range
   Future<double> getTotalSpentInRange(DateTime startDate, DateTime endDate) async {
     final List<Bill> bills = await getBillsInDateRange(startDate, endDate);
     return bills.fold<double>(0.0, (double sum, Bill bill) => sum + (bill.total ?? 0.0));
+  }
+
+  /// Get the date range for a given filter and period offset.
+  /// offset=0 means current period (this week/month/year),
+  /// offset=1 means previous (last week/month/year), offset=2 means 2 ago, etc.
+  ({DateTime start, DateTime end}) getDateRangeForPeriod(TimeFilter filter, int offset) {
+    final now = DateTime.now();
+    switch (filter) {
+      case TimeFilter.week:
+        final currentWeekMonday = now.subtract(Duration(days: now.weekday - 1));
+        final start = DateTime(currentWeekMonday.year, currentWeekMonday.month, currentWeekMonday.day)
+            .subtract(Duration(days: 7 * offset));
+        final end = start.add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
+        return (start: start, end: end);
+      case TimeFilter.month:
+        int year = now.year;
+        int month = now.month - offset;
+        while (month <= 0) { month += 12; year -= 1; }
+        final start = DateTime(year, month, 1);
+        final end = DateTime(year, month + 1, 1).subtract(const Duration(seconds: 1));
+        return (start: start, end: end);
+      case TimeFilter.year:
+        final year = now.year - offset;
+        final start = DateTime(year, 1, 1);
+        final end = DateTime(year, 12, 31, 23, 59, 59);
+        return (start: start, end: end);
+    }
+  }
+
+  /// Fetch bills for a specific period offset (0=current, 1=previous, 2=two ago).
+  Future<List<Bill>> getBillsForPeriod(TimeFilter filter, int offset) async {
+    final range = getDateRangeForPeriod(filter, offset);
+    return getBillsInDateRange(range.start, range.end);
   }
 
   /// Get previous period bills based on current filter

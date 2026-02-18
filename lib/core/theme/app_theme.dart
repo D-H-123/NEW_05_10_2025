@@ -372,6 +372,10 @@ class AppTheme {
   static const Color errorColor = _errorColor;
   static const Color infoColor = _infoColor;
 
+  /// Dark blue used for nav bar, profile header, etc.
+  static const Color darkBlue = Color(0xFF16213e);
+  static const Color darkBlueLight = Color(0xFF1a2a4e);
+
   // Gradients
   static const LinearGradient primaryGradient = LinearGradient(
     colors: [primaryGradientStart, primaryGradientEnd],
@@ -383,6 +387,13 @@ class AppTheme {
     colors: [secondaryGradientStart, secondaryGradientEnd],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
+  );
+
+  /// Gradient for profile/settings header (theme dark blue).
+  static const LinearGradient darkBlueGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [darkBlue, darkBlueLight],
   );
 
   // Shadows
